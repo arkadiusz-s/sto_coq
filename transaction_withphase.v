@@ -231,13 +231,15 @@ The first element (tid) of the sequence is the first transaction that completes 
 Note that STO-trace is constructed in a reverse order: the first (tid * action) pair is the last operation in the trace
 *)
 
-(*
-Function seq_list_all (sto_trace: trace): list nat:=
+
+Function seq_list (sto_trace: trace): list nat:=
   match sto_trace with
   | [] => []
-  | (tid, seq_point) :: tail => tid :: seq_list_all tail
-  | _ :: tail => seq_list_all tail
+  | (tid, seq_point) :: tail => tid :: seq_list tail
+  | _ :: tail => seq_list tail
   end.
+
+(*
 Function seq_list (sl: list nat) (trace : trace) : list nat:=
   match sl with 
   | [] => []
@@ -251,6 +253,7 @@ Eval compute in seq_list_all example_txn.
 Eval compute in seq_list_all example_txn2.
 *)
 
+(*
 Function create_serialized_trace (sto_trace: trace) (sto_trace_copy: trace): trace:=
   match sto_trace with
   | [] => []
@@ -262,17 +265,21 @@ Function create_serialized_trace (sto_trace: trace) (sto_trace_copy: trace): tra
       ++ create_serialized_trace tail sto_trace_copy
   | _ :: tail => create_serialized_trace tail sto_trace_copy
   end.
+*)
 
-(*
 Function create_serialized_trace (sto_trace: trace) (seqls : list nat): trace:=
   match seqls with
   | [] => []
   | head :: tail 
-    => if trace_tid_abort head sto_trace (*this tid is aborted*)
+    => 
+    (*if trace_tid_abort head sto_trace (*this tid is aborted*)
       then create_serialized_trace sto_trace tail
       else trace_tid_actions head sto_trace ++ create_serialized_trace sto_trace tail
+    *)
+      trace_tid_actions head sto_trace 
+      ++ create_serialized_trace sto_trace tail
   end.
-*)
+
 
 Lemma sto_trace_cons ta t:
   sto_trace (ta :: t) -> sto_trace t.
@@ -602,37 +609,203 @@ Proof.
   now rewrite H6.
 Qed.
 
-Lemma serial_trace_remove tid action t:
-  ~ In (tid, seq_point) t -> 
-  create_serialized_trace t ((tid, action) :: t) = create_serialized_trace t t.
+Lemma seq_point_to_seq_list t tid:
+  In (tid, seq_point) t
+  -> In tid (seq_list t).
 Proof.
-  intros H.
-  induction t; simpl; auto.
-  destruct a.
+  intros.
+  functional induction seq_list t.
+  inversion H.
+  destruct (Nat.eq_dec tid tid0); subst; simpl.
+  left. auto.
+  right. apply IHl. apply in_inv in H. destruct H.
+  inversion H. apply Nat.eq_sym in H1. contradiction. auto.
+  destruct _x. destruct a.
+  all: destruct (Nat.eq_dec tid t); subst; apply IHl; apply in_inv in H; destruct H; try inversion H; auto.
+  inversion y.
+  contradiction.
+Qed.
 
+Lemma seq_list_to_seq_point t tid:
+  In tid (seq_list t)
+  -> In (tid, seq_point) t.
+Proof.
+  intros.
+  functional induction seq_list t.
+  inversion H.
+  destruct (Nat.eq_dec tid tid0); subst; simpl; simpl in H. left. auto.
+  destruct H. apply eq_sym in H. congruence. apply IHl in H. right. auto.
+  destruct _x. destruct a.
+  all: destruct (Nat.eq_dec tid t); subst; apply in_cons; auto.
+Qed.
+
+Lemma seq_point_to_seq_list_neg t tid:
+  ~ In (tid, seq_point) t
+  -> ~ In tid (seq_list t).
+Proof.
+  intuition.
+  now apply seq_list_to_seq_point in H0. 
+Qed.
+
+Lemma seq_list_to_seq_point_neg t tid:
+  ~ In tid (seq_list t)
+  -> ~ In (tid, seq_point) t.
+Proof.
+  intuition.
+  now apply seq_point_to_seq_list in H0.
+Qed.
+
+Lemma serial_trace_remove tid action t:
+  ~ In tid (seq_list t) -> 
+  create_serialized_trace ((tid, action) :: t) (seq_list t)= create_serialized_trace t (seq_list t).
+Proof.
+  intros NI.
+  induction (seq_list t).
   simpl. auto.
-  simpl.
-  simpl in H.
+  simpl in *.
   assert (a <> tid /\ ~ In tid l). { intuition. }
-  destruct H0.
-  apply not_eq_sym in H0. rewrite <- Nat.eqb_neq in H0. rewrite H0.
-  apply IHl in H1. rewrite H1. auto.
+  destruct H.
+  destruct (Nat.eq_dec a tid).
+  contradiction.
+  apply IHl in H0.
+  now rewrite H0.
+Qed.
+
+Lemma smaller_than_phase_3_no_seq_point tid t:
+  sto_trace t
+  -> trace_tid_phase tid t < 3
+  -> ~ In (tid, seq_point) t.
+Proof.
+  intros H T.
+  induction H; simpl; auto.
+
+  intuition. inversion H3. simpl in T.
+  destruct (Nat.eq_dec tid tid0). subst. 
+  assert (trace_tid_phase tid0 t <3). { omega. }
+  apply IHsto_trace in H2; [ | auto]. auto.
+  apply IHsto_trace in T; [ | auto]. auto.
+
+  intuition. inversion H3. simpl in T.
+  destruct (Nat.eq_dec tid tid0). subst. 
+  assert (trace_tid_phase tid0 t <3). { omega. }
+  apply IHsto_trace in H2; [ | auto]. auto.
+  apply IHsto_trace in T; [ | auto]. auto.
+
+  intuition. inversion H2. simpl in T.
+  destruct (Nat.eq_dec tid tid0). subst. 
+  assert (trace_tid_phase tid0 t <3). { omega. }
+  apply IHsto_trace in H2; [ | auto]. auto.
+  apply IHsto_trace in T; [ | auto]. auto.
+
+  intuition. inversion H2. simpl in T.
+  destruct (Nat.eq_dec tid tid0). subst. 
+  assert (trace_tid_phase tid0 t <3). { omega. }
+  apply IHsto_trace in H2; [ | auto]. auto.
+  apply IHsto_trace in T; [ | auto]. auto.
+
+  intuition. inversion H4. simpl in T.
+  destruct (Nat.eq_dec tid tid0). subst. 
+  assert (trace_tid_phase tid0 t <3). { omega. }
+  apply IHsto_trace in H3; [ | auto]. auto.
+  apply IHsto_trace in T; [ | auto]. auto.
+
+  intuition; simpl in T. inversion H3; subst.
+  destruct (Nat.eq_dec tid tid). omega. contradiction.
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H4; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H3; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H3; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H3; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H4; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
+
+  intuition; simpl in T. inversion H3; subst. 
+  destruct (Nat.eq_dec tid tid0). omega. now apply IHsto_trace in T.
 Qed.
 
 Lemma serial_trace_remove_before_seq_point tid action t:
   sto_trace ((tid, action) :: t) ->
-  trace_tid_phase tid ((tid, action) :: t) = 2
-  -> create_serialized_trace ((tid, action) :: t) ((tid, action) :: t) = 
-     create_serialized_trace t t.
+  trace_tid_phase tid ((tid, action) :: t) < 3
+  -> create_serialized_trace ((tid, action) :: t) (seq_list ((tid, action) :: t)) = 
+     create_serialized_trace t (seq_list t).
 Proof.
   intros H P.
-  
+  inversion H; subst.
+
+  simpl. apply smaller_than_phase_3_no_seq_point in P; [ | auto]. simpl in P.
+  assert ((tid, start_txn) <> (tid, seq_point) /\ ~In (tid, seq_point) t). { intuition. } destruct H0.
+  apply seq_point_to_seq_list_neg in H1.
+  now apply serial_trace_remove with (action0 := start_txn) in H1.
+
+  simpl. apply smaller_than_phase_3_no_seq_point in P; [ | auto]. simpl in P.
+  assert ((tid, read_item (trace_write_version t)) <> (tid, seq_point) /\ ~In (tid, seq_point) t). { intuition. } destruct H0.
+  apply seq_point_to_seq_list_neg in H1.
+  now apply serial_trace_remove with (action0 := read_item (trace_write_version t)) in H1.
+
+  simpl. apply smaller_than_phase_3_no_seq_point in P; [ | auto]. simpl in P.
+  assert ((tid, write_item val) <> (tid, seq_point) /\ ~In (tid, seq_point) t). { intuition. } destruct H0.
+  apply seq_point_to_seq_list_neg in H1.
+  now apply serial_trace_remove with (action0 := write_item val) in H1.
+ 
+  simpl. apply smaller_than_phase_3_no_seq_point in P; [ | auto]. simpl in P.
+  assert ((tid, try_commit_txn) <> (tid, seq_point) /\ ~In (tid, seq_point) t). { intuition. } destruct H0.
+  apply seq_point_to_seq_list_neg in H1.
+  now apply serial_trace_remove with (action0 := try_commit_txn) in H1.
+   
+  simpl. apply smaller_than_phase_3_no_seq_point in P; [ | auto]. simpl in P.
+  assert ((tid, lock_write_item) <> (tid, seq_point) /\ ~In (tid, seq_point) t). { intuition. } destruct H0.
+  apply seq_point_to_seq_list_neg in H1.
+  now apply serial_trace_remove with (action0 := lock_write_item) in H1.
+
+  all: simpl in P; try destruct (Nat.eq_dec tid tid); try omega; try contradiction.
+  all: destruct (Nat.eq_dec (locked_by t 0) (locked_by t 0)); try omega; try contradiction.
+Qed.
+
 
 
 Lemma is_sto_trace trace:
   sto_trace trace ->
-  sto_trace (create_serialized_trace trace trace).
+  sto_trace (create_serialized_trace trace (seq_list trace)).
 Proof.
   intros H.
-  induction H; simpl.
-  auto.
+  assert (sto_trace trace). { auto. }
+  induction H; simpl; auto; try apply IHsto_trace in H2.
+
+  assert (trace_tid_phase tid0 ((tid0, start_txn) :: t) < 3). { 
+  simpl. destruct (Nat.eq_dec tid0 tid0). omega. contradiction. }
+  apply serial_trace_remove_before_seq_point in H3.
+  simpl in H3. unfold tid in H3. rewrite H3. auto. auto.
+
+  assert (trace_tid_phase tid0 ((tid0, read_item (trace_write_version t)) :: t) < 3). { 
+  simpl. destruct (Nat.eq_dec tid0 tid0). omega. contradiction. }
+  apply serial_trace_remove_before_seq_point in H3.
+  simpl in H3. unfold tid in H3. rewrite H3. auto. auto.
+
+  assert (trace_tid_phase tid0 ((tid0, write_item val) :: t) < 3). { 
+  simpl. destruct (Nat.eq_dec tid0 tid0). omega. contradiction. }
+  apply serial_trace_remove_before_seq_point in H2.
+  simpl in H2. unfold tid in H2. rewrite H2. auto. auto.
+
+  assert (trace_tid_phase tid0 ((tid0, try_commit_txn) :: t) < 3). { 
+  simpl. destruct (Nat.eq_dec tid0 tid0). omega. contradiction. }
+  apply serial_trace_remove_before_seq_point in H2.
+  simpl in H2. unfold tid in H2. rewrite H2. auto. auto.
+
+  assert (trace_tid_phase tid0 ((tid0, lock_write_item) :: t) < 3). { 
+  simpl. destruct (Nat.eq_dec tid0 tid0). omega. contradiction. }
+  apply serial_trace_remove_before_seq_point in H4.
+  simpl in H4. unfold tid in H4. rewrite H4. auto. auto.
+
+  destruct (Nat.eq_dec tid0 tid0).
+
+
+

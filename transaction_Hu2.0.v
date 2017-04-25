@@ -1068,7 +1068,6 @@ constructed by this function is the last operation performed in this trace
 *)
 
 Lemma serial_action_remove tid action t:
-  sto_trace ((tid, action) :: t) ->
   ~ In tid (seq_list t) -> 
   create_serialized_trace ((tid, action) :: t) (seq_list t)= create_serialized_trace t (seq_list t).
 Proof.
@@ -1076,11 +1075,11 @@ Proof.
   induction (seq_list t).
   simpl. auto.
   simpl.
-  simpl in H0.
+  simpl in H.
   assert (a <> tid /\ ~ In tid l). { intuition. }
-  destruct H1.
-  apply not_eq_sym in H1. rewrite <- Nat.eqb_neq in H1. rewrite H1.
-  apply IHl in H2. rewrite H2. auto.
+  destruct H0.
+  apply not_eq_sym in H0. rewrite <- Nat.eqb_neq in H0. rewrite H0.
+  apply IHl in H1. rewrite H1. auto.
 Qed.
 
 Lemma serial_action_helper tid action t:
@@ -1095,32 +1094,32 @@ Proof.
   inversion H; subst.
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := start_txn) in H1; [auto | auto].
+  apply serial_action_remove with (action0 := start_txn) in H1. auto.
 
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := read_item (trace_complete_last t)) in H1; [auto | auto].
+  apply serial_action_remove with (action0 := read_item (trace_complete_last t)) in H1; auto.
 
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := write_item val) in H1; [auto | auto]. 
+  apply serial_action_remove with (action0 := write_item val) in H1; auto. 
 
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := try_commit_txn) in H1; [auto | auto].
+  apply serial_action_remove with (action0 := try_commit_txn) in H1; auto. 
    
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := lock_write_item) in H1; [auto | auto].
+  apply serial_action_remove with (action0 := lock_write_item) in H1; auto. 
 
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
   apply serial_action_remove with (action0 := validate_read_item
-     (check_version (read_versions_tid tid t) (trace_complete_last t))) in H1; [auto | auto].
+     (check_version (read_versions_tid tid t) (trace_complete_last t))) in H1; auto.
 
   apply seq_list_action_neg in H. destruct H. apply H in H0.
   apply seq_list_not_seqpoint2 in H1; [ | auto ].
-  apply serial_action_remove with (action0 := abort_txn (trace_has_locks tid t)) in H1; [auto | auto].
+  apply serial_action_remove with (action0 := abort_txn (trace_has_locks tid t)) in H1; auto. 
 
   destruct H0. congruence.
   destruct H0. destruct H3. congruence.
@@ -1182,7 +1181,30 @@ Lemma serial_action_before_commit tid t1 t2 t:
   create_serialized_trace t (seq_list t1) ++ (tid, commit_txn) :: trace_filter_tid tid t ++ create_serialized_trace t (seq_list t2).
 Proof.
   intros.
-  assert (~ In tid (seq_list t2)).
+  remember ((tid, commit_txn) :: t) as tbig.
+  assert (create_serialized_trace tbig (seq_list tbig) =
+          create_serialized_trace tbig (seq_list ((tid, commit_txn) :: t1))
+          ++ trace_filter_tid tid tbig
+          ++ create_serialized_trace tbig (seq_list t2)). {
+    repeat rewrite Heqtbig.
+    repeat rewrite H0.
+    rewrite app_comm_cons.
+    apply serial_action_split.
+    rewrite <- app_comm_cons.
+    rewrite <- H0.
+    rewrite <- Heqtbig.
+    auto.
+    auto.
+  }
+  rewrite Heqtbig in H1; simpl in H1.
+  rewrite <- beq_nat_refl in H1.
+  assert (~ In tid (seq_list t1)). {
+  rewrite Heqtbig in H. rewrite H0 in H.
+  apply sto_trace_app in H.
+  apply seq_list_no_two_seqpoint2 in H.
+  intuition. apply trace_seqlist_seqpoint_rev in H2. auto.
+  }
+  apply serial_action_remove with (action0:= commit_txn) in H2.
   
 Admitted.
 

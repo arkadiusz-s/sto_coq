@@ -843,8 +843,8 @@ Proof.
 Qed.
 
 Lemma tid_filter_in tid a t:
-In (tid, a) t
--> In (tid, a) (trace_tid_actions tid t).
+  In (tid, a) t
+  -> In (tid, a) (trace_tid_actions tid t).
 Proof.
   intros.
   induction t. simpl. auto.
@@ -855,11 +855,47 @@ Proof.
   apply IHt in H. simpl. right. auto. auto.
 Qed.
 
-Lemma tid_filter_locked_by tid t:
-locked_by t 0 = 0 
--> locked_by (trace_tid_actions tid t) 0 = 0.
-Admitted.
+Lemma tid_filter_in_rev tid a t:
+  In (tid, a) (trace_tid_actions tid t)
+  -> In (tid, a) t.
+Proof.
+  intros.
+  induction t. simpl. auto.
+  destruct a0. simpl in *.
+  destruct (Nat.eq_dec tid n). subst.
+  simpl in H. destruct H. now left.
+  all: right; auto.
+Qed.
 
+Lemma tid_filter_in_iff tid a t:
+  In (tid, a) t
+  <-> In (tid, a) (trace_tid_actions tid t).
+Proof.
+  split.
+  apply tid_filter_in.
+  apply tid_filter_in_rev.
+Qed.
+
+(*
+Lemma tid_filter_locked_by tid t:
+sto_trace t
+-> locked_by t tid = tid 
+-> locked_by (trace_tid_actions tid t) tid = tid.
+Proof.
+  intros.
+  induction H; simpl. auto.
+  all: destruct (Nat.eq_dec tid tid0); subst.
+  all: simpl in *; auto.
+  apply eq_sym in H0. contradiction.
+
+  simpl in H.
+  destruct a. auto. auto. auto. auto. auto.
+  apply eq_sym in H. contradiction.
+  auto. auto. auto.
+  admit.
+  unfold locked_by in *.
+Admitted.
+*)
 Lemma NotIn_split (tid: nat) (ls: list nat) (first: nat):
   ~ In tid (ls ++ [first]) ->
   ~ In tid ls /\ (first <> tid).
@@ -884,19 +920,30 @@ Proof.
   1-5:  assert (trace_tid_phase tid0 t < 3) as GT3; try omega.
   1-5:  apply smaller_than_phase_3_no_seq_point in GT3; [ | auto].
   1-5:  apply seq_point_to_seq_list_neg in GT3; simpl in H0; rewrite H0 in GT3; apply NotIn_split in GT3; destruct GT3.
-  1-5: destruct (Nat.eq_dec first tid0); try contradiction. 
+  all: destruct (Nat.eq_dec first tid0); try contradiction. 
   1-5: apply IHsto_trace in H0; auto.
 
-  simpl in H0.    
-  destruct (Nat.eq_dec first first).
-  rewrite tid_filter_same_phase in H.
+  all: simpl in H0; try apply IHsto_trace in H0; auto.    
+  all: rewrite tid_filter_same_phase in H.
   apply sto_trace_nil_add.
+  assert (forall v : value,
+     In (tid0, write_item v) (trace_tid_actions tid0 t) -> In (tid0, lock_write_item) (trace_tid_actions tid0 t)).
+  { intros. apply tid_filter_in_rev in H3. apply H1 in H3. apply tid_filter_in. auto. }
+  admit. admit.
+  
+  
   
 
 
 
 
 Admitted.
+
+Lemma seq_list_empty t tid:
+sto_trace t
+-> seq_list t = []
+-> sto_trace (trace_tid_actions tid t).
+
 
 Lemma commit_in_phase4 tid t:
   sto_trace t ->
@@ -1008,7 +1055,7 @@ Proof.
 (*our seq_list definition contains abort, so this lemma is not iff...*)
 Qed.
 
-
+(*
 Lemma is_sto_trace_filter_tid tid t:
   sto_trace t 
   -> sto_trace (trace_tid_actions tid t).
@@ -1035,7 +1082,7 @@ admit. auto.
 
   apply start_txn_step with (tid:= tid0) in IHsto_trace; auto.
 Admitted.
-
+*)
 Lemma is_sto_trace trace:
   sto_trace trace ->
   sto_trace (create_serialized_trace trace (seq_list trace)).
@@ -1072,6 +1119,50 @@ Proof.
   destruct (Nat.eq_dec tid0 tid0).
   admit. contradiction.
 Admitted.
+
+Fixpoint trace_filter_abort tid t: trace :=
+  match t with
+  | (tid', a) :: t' =>
+    if Nat.eq_dec tid tid'
+    then trace_filter_abort tid t'
+    else (tid', a) :: (trace_filter_abort tid t')
+  | [] => []
+  end.
+
+Function filter_sto_trace (sto_trace: trace): trace:=
+  match sto_trace with
+  | (tid, unlock_write_item) :: tail => trace_filter_abort tid (filter_sto_trace tail)
+  | (tid, abort_txn) :: tail => trace_filter_abort tid (filter_sto_trace tail)
+  | _ :: tail => filter_sto_trace tail
+  | [] => []
+  end.
+
+Lemma no_abort_trace_same_as_before tr:
+  sto_trace tr
+  -> sto_trace (filter_sto_trace tr).
+Proof.
+  intros.
+  induction H; simpl; auto.
+  assert (sto_trace ((tid0, abort_txn)::t)). { apply abort_txn_step with (tid:= tid0) in H1; auto. }
+  
+  induction (filter_sto_trace t).
+  simpl; auto.
+  destruct a. simpl. destruct (Nat.eq_dec tid0 t1); subst.
+  apply sto_trace_cons in IHsto_trace. auto.
+  inversion IHsto_trace; subst.
+admit.
+
+
+Function swap_actions (tr: trace) : trace :=
+  match tr with
+  | () :: () :: tail => 
+
+
+
+
+
+
+
 
 
 

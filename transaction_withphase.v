@@ -891,6 +891,7 @@ Proof.
   destruct (Nat.eq_dec first first).
   rewrite tid_filter_same_phase in H.
   apply sto_trace_nil_add.
+  
 
 
 

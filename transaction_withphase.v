@@ -770,6 +770,66 @@ Proof.
   all: destruct (Nat.eq_dec (locked_by t 0) (locked_by t 0)); try omega; try contradiction.
 Qed.
 
+Lemma is_sto_trace_start t s1 first:
+  sto_trace t ->
+  seq_list t = first :: s1 ->
+  sto_trace (create_serialized_trace t [first]).
+Proof.
+Admitted.
+
+Lemma sto_trace_single tid t:
+  sto_trace ((tid, seq_point) :: t)
+  -> sto_trace (create_serialized_trace t (seq_list t))
+  -> sto_trace ((trace_tid_actions tid ((tid, seq_point) :: t))
+      ++ (create_serialized_trace t (seq_list t))).
+Proof.
+  intros.
+  assert ((trace_tid_actions tid ((tid, seq_point) :: t)) = 
+    create_serialized_trace ((tid, seq_point) :: t) [tid]). {
+    admit.
+  }
+  rewrite H1.
+  assert (sto_trace (create_serialized_trace ((tid, seq_point) :: t) [tid])). {
+    apply is_sto_trace_start with (t := ((tid, seq_point) :: t)) (s1 := (seq_list t)) (first := tid).
+    auto. simpl. auto.
+  }
+  clear H1.
+  functional induction (create_serialized_trace ((tid, seq_point) :: t) [tid]).
+  - simpl; auto.
+  - 
+
+
+
+  induction (create_serialized_trace ((tid, seq_point) :: t) [tid]).
+  - simpl; auto.
+  - apply sto_trace_cons in H2. apply IHt0 in H2.
+
+
+
+
+
+  inversion H2.
+  - simpl. destruct (Nat.eq_dec tid tid).
+    -- simpl in H3. discriminate.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. inversion H1.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. inversion H1.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. inversion H1.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. inversion H1.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. inversion H1.
+    -- omega.
+  - simpl in *. destruct (Nat.eq_dec tid tid); subst.
+    -- simpl in *. 
+
 
 
 Lemma is_sto_trace trace:

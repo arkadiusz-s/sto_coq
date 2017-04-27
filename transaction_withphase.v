@@ -314,24 +314,24 @@ Function swap_action_tid (tid: tid) (t:trace) {measure length t} : trace :=
     | (tid2, action2) :: tail =>
       if tid1 =? tid2
       then
-          (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
+          (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
       else
           if tid1 =? tid
           then
                if (3 <=? action_phase action1) && (is_not_seq_point action1)
                then 
-                    (tid2, action2) :: (tid1, action1) :: swap_action_tid tid ((tid1, action1) :: tail)
+                    (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
                else 
-                    (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
+                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
           else
                if tid2 =? tid
                then if action_phase action2 <? 3
                     then 
-                         (tid2, action2) :: (tid1, action1) :: swap_action_tid tid ((tid1, action1) :: tail)
+                         (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
                     else 
-                         (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
+                         (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
                else 
-                    (tid1, action1) :: (tid2, action2) :: ((tid2, action2) :: tail)
+                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
     end
   end.
 Proof.
@@ -347,17 +347,21 @@ Function swap_action_tid_repeat (tid: tid) (t : trace) (n : nat) : trace :=
 
 Function create_serialized_trace2 (t : trace) (seq_list : list tid) : trace :=
   match seq_list with
-  | [] => []
+  | [] => t
   | head :: tail => create_serialized_trace2 (swap_action_tid_repeat head t (length t)) tail
   end.
 
 Definition example:=
 [(1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
-Eval compute in seq_list example.
-Eval compute in create_serialized_trace2 example (seq_list example).
-Eval compute in create_serialized_trace2 example_txn (seq_list example_txn).
-Eval compute in example_txn2.
+Definition example2:=
+[(2, commit_done_txn); (2, complete_write_item 1); (1, commit_done_txn); (1, commit_txn); (2, commit_txn);  (2, seq_point); (2, lock_write_item); (1, validate_read_item 0); (2, try_commit_txn); (2, write_item 4); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (2, start_txn); (1, start_txn)].
 
+Eval compute in seq_list example.
+Eval compute in swap_action_tid 1 example.
+Eval compute in swap_action_tid_repeat 1 example2 15.
+Eval compute in swap_action_tid_repeat 2 example2 15.
+Eval compute in create_serialized_trace2 example (seq_list example).
+Eval compute in create_serialized_trace2 example2 (seq_list example2).
 
 Lemma sto_trace_cons ta t:
   sto_trace (ta :: t) -> sto_trace t.

@@ -87,16 +87,6 @@ Fixpoint trace_tid_actions tid t: trace :=
   | [] => []
   end.
 
-Fixpoint trace_tid_abort tid t: bool :=
-  match t with
-  | (tid', abort_txn) :: t' => 
-    if Nat.eq_dec tid tid'
-    then true
-    else trace_tid_abort tid t'
-  | _ :: t' => trace_tid_abort tid t'
-  | [] => false
-  end.
-
 (* Return the version number of the last committed write *)
 Fixpoint trace_write_version (t:trace): version :=
   match t with
@@ -239,6 +229,13 @@ Function seq_list (sto_trace: trace): list nat:=
   | _ :: tail => seq_list tail
   end.
 
+Function abort_list (sto_trace: trace): list nat:=
+  match sto_trace with
+  | [] => []
+  | (tid, abort_txn) :: tail => tid :: abort_list tail
+  | _ :: tail => abort_list tail
+  end.
+
 (*
 Function seq_list (sl: list nat) (trace : trace) : list nat:=
   match sl with 
@@ -267,6 +264,15 @@ Function create_serialized_trace (sto_trace: trace) (sto_trace_copy: trace): tra
   end.
 *)
 
+(*
+Check whether an element a is in the list l
+*)
+Fixpoint In_bool (a:nat) (l:list nat) : bool :=
+  match l with
+    | [] => false
+    | b :: m => (b =? a) || In_bool a m
+  end.
+
 Function create_serialized_trace (sto_trace: trace) (seqls : list nat): trace:=
   match seqls with
   | [] => []
@@ -287,15 +293,32 @@ tid is only increaing as we traverse the trace
 In this function, we assume that the trace is in the correct order.
 That is, the first (tid*action) in the trace is actually the first one that gets to be executed
 *)
+
 Function check_is_serial_trace (tr: trace) : Prop :=
   match tr with 
   | [] => True
   | (tid, x) :: rest =>
     match rest with
     | [] => True
-    | (tid', y) :: _ => (tid = tid' \/ trace_tid_actions tid rest = [])
+    | (tid', y) :: _ => 
+                      (tid = tid' \/ trace_tid_actions tid rest = [])
                         /\ check_is_serial_trace rest
     end
+  end.
+
+Function check_is_serial_trace2 (tr: trace) (al: list tid): Prop :=
+  match tr with 
+  | [] => True
+  | (tid, x) :: rest =>
+    if (In_bool tid al)
+    then check_is_serial_trace2 rest al
+    else 
+      match rest with
+      | [] => True
+      | (tid', y) :: _ => 
+                        (tid = tid' \/ trace_tid_actions tid rest = [])
+                          /\ check_is_serial_trace2 rest al
+      end
   end.
 
 Definition is_not_seq_point (a:action) : bool :=
@@ -355,6 +378,8 @@ Definition example:=
 [(1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
 Definition example2:=
 [(2, commit_done_txn); (2, complete_write_item 1); (1, commit_done_txn); (1, commit_txn); (2, commit_txn);  (2, seq_point); (2, lock_write_item); (1, validate_read_item 0); (2, try_commit_txn); (2, write_item 4); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (2, start_txn); (1, start_txn)].
+Definition example3:=
+[(2, commit_done_txn); (2, complete_write_item 1); (1, commit_done_txn); (1, commit_txn); (3, abort_txn); (2, commit_txn);  (2, seq_point); (2, lock_write_item); (1, validate_read_item 0); (2, try_commit_txn); (2, write_item 4); (3, start_txn); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (2, start_txn); (1, start_txn)].
 
 Eval compute in seq_list example.
 Eval compute in swap_action_tid 1 example.
@@ -362,6 +387,55 @@ Eval compute in swap_action_tid_repeat 1 example2 15.
 Eval compute in swap_action_tid_repeat 2 example2 15.
 Eval compute in create_serialized_trace2 example (seq_list example).
 Eval compute in create_serialized_trace2 example2 (seq_list example2).
+Eval compute in create_serialized_trace2 example3 (seq_list example3).
+Eval compute in check_is_serial_trace2 (create_serialized_trace2 example3 (seq_list example3)) (abort_list example3).
+
+Fixpoint trace_tid_abort tid t: bool :=
+  match t with
+  | (tid', abort_txn) :: t' => 
+    if Nat.eq_dec tid tid'
+    then true
+    else trace_tid_abort tid t'
+  | _ :: t' => trace_tid_abort tid t'
+  | [] => false
+  end.
+
+
+Fixpoint trace_filter_abort tid t: trace :=
+  match t with
+  | (tid', a) :: t' =>
+    if Nat.eq_dec tid tid'
+    then trace_filter_abort tid t'
+    else (tid', a) :: (trace_filter_abort tid t')
+  | [] => []
+  end.
+
+Function filter_sto_trace (sto_trace: trace): trace:=
+  match sto_trace with
+  | (tid, unlock_write_item) :: tail => trace_filter_abort tid (filter_sto_trace tail)
+  | (tid, abort_txn) :: tail => trace_filter_abort tid (filter_sto_trace tail)
+  | _ :: tail => filter_sto_trace tail
+  | [] => []
+  end.
+
+Lemma no_abort_trace_same_as_before tr:
+  sto_trace tr
+  -> sto_trace (filter_sto_trace tr).
+Proof.
+  intros.
+  induction H; simpl; auto.
+  assert (sto_trace ((tid0, abort_txn)::t)). { apply abort_txn_step with (tid:= tid0) in H1; auto. }
+  
+  induction (filter_sto_trace t).
+  simpl; auto.
+  destruct a. simpl. destruct (Nat.eq_dec tid0 t1); subst.
+Admitted.
+
+Lemma is_serial tr :
+  check_is_serial_trace (create_serialized_trace2 tr (seq_list tr)).
+Proof.
+  intros.
+  
 
 Lemma sto_trace_cons ta t:
   sto_trace (ta :: t) -> sto_trace t.
@@ -1222,51 +1296,3 @@ Proof.
   destruct (Nat.eq_dec tid0 tid0).
   admit. contradiction.
 Admitted.
-
-Fixpoint trace_filter_abort tid t: trace :=
-  match t with
-  | (tid', a) :: t' =>
-    if Nat.eq_dec tid tid'
-    then trace_filter_abort tid t'
-    else (tid', a) :: (trace_filter_abort tid t')
-  | [] => []
-  end.
-
-Function filter_sto_trace (sto_trace: trace): trace:=
-  match sto_trace with
-  | (tid, unlock_write_item) :: tail => trace_filter_abort tid (filter_sto_trace tail)
-  | (tid, abort_txn) :: tail => trace_filter_abort tid (filter_sto_trace tail)
-  | _ :: tail => filter_sto_trace tail
-  | [] => []
-  end.
-
-Lemma no_abort_trace_same_as_before tr:
-  sto_trace tr
-  -> sto_trace (filter_sto_trace tr).
-Proof.
-  intros.
-  induction H; simpl; auto.
-  assert (sto_trace ((tid0, abort_txn)::t)). { apply abort_txn_step with (tid:= tid0) in H1; auto. }
-  
-  induction (filter_sto_trace t).
-  simpl; auto.
-  destruct a. simpl. destruct (Nat.eq_dec tid0 t1); subst.
-  apply sto_trace_cons in IHsto_trace. auto.
-  inversion IHsto_trace; subst.
-admit.
-
-
-Function swap_actions (tr: trace) : trace :=
-  match tr with
-  | () :: () :: tail => 
-
-
-
-
-
-
-
-
-
-
-

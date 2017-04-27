@@ -298,43 +298,65 @@ Function check_is_serial_trace (tr: trace) : Prop :=
     end
   end.
 
-Function swap_action_tid (tid: tid) (t:trace) (n:nat) : (trace * nat) :=
-  match t with 
-  | [] => ([], n)
+Definition is_not_seq_point (a:action) : bool :=
+  match a with
+  | seq_point => false
+  | _ => true
+  end.
+  
+
+Function swap_action_tid (tid: tid) (t:trace) {measure length t} : trace :=
+  match t with
+  | [] => []
   | (tid1, action1) :: tail' =>
     match tail' with
-    | [] => ([(tid1, action1)], n)
+    | [] => [(tid1, action1)]
     | (tid2, action2) :: tail =>
-      if tid1 =? tid2 
-      then 
-          let result := swap_action_tid tid ((tid2, action2) :: tail) n in
-          ((tid1, action1) :: (tid2, action2) :: (fst result), snd result)
+      if tid1 =? tid2
+      then
+          (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
       else
           if tid1 =? tid
-          then 
-               if 3 <? action_phase action1 (* or it is a validation *)
+          then
+               if (3 <=? action_phase action1) && (is_not_seq_point action1)
                then 
-                    let result := swap_action_tid tid ((tid1, action1) :: tail) (S n) in
-                    (((tid2, action2) :: (tid1, action1) :: fst result), snd result)
+                    (tid2, action2) :: (tid1, action1) :: swap_action_tid tid ((tid1, action1) :: tail)
                else 
-                    let result := swap_action_tid tid ((tid2, action2) :: tail) n in 
-                    ((tid1, action1) :: (tid2, action2) :: fst result, snd result)
+                    (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
           else
                if tid2 =? tid
                then if action_phase action2 <? 3
                     then 
-                         let result := swap_action_tid tid ((tid1, action1) :: tail) (S n) in
-                         ((tid2, action2) :: (tid1, action1) :: fst result, snd result)
+                         (tid2, action2) :: (tid1, action1) :: swap_action_tid tid ((tid1, action1) :: tail)
                     else 
-                         let result := swap_action_tid tid ((tid2, action2) :: tail) n in
-                         ((tid1, action1) :: (tid2, action2) :: fst result, snd result)
+                         (tid1, action1) :: (tid2, action2) :: swap_action_tid tid ((tid2, action2) :: tail)
                else 
-                    let result := swap_action_tid tid ((tid2, action2) :: tail) n in
-                    ((tid1, action1) :: (tid2, action2) :: fst result, snd result)
+                    (tid1, action1) :: (tid2, action2) :: ((tid2, action2) :: tail)
     end
   end.
+Proof.
+  all: intros; simpl; auto.
+Defined.
+  
+  
+Function swap_action_tid_repeat (tid: tid) (t : trace) (n : nat) : trace :=
+  match n with
+  | 0 => t
+  | S m => swap_action_tid_repeat tid (swap_action_tid tid t) m
+  end.
 
-Function create_serialized_trace2 (t : trace) :=
+Function create_serialized_trace2 (t : trace) (seq_list : list tid) : trace :=
+  match seq_list with
+  | [] => []
+  | head :: tail => create_serialized_trace2 (swap_action_tid_repeat head t (length t)) tail
+  end.
+
+Definition example:=
+[(1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
+Eval compute in seq_list example.
+Eval compute in create_serialized_trace2 example (seq_list example).
+Eval compute in create_serialized_trace2 example_txn (seq_list example_txn).
+Eval compute in example_txn2.
 
 
 Lemma sto_trace_cons ta t:

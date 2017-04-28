@@ -31,7 +31,6 @@ end.
 
 
 Inductive action:=
-|dummy: action
 |start_txn: action
 |read_item: version -> action
 |write_item: value -> action
@@ -50,11 +49,11 @@ Inductive action:=
 (*|obtain_global_tid: action.*)
 (*sp later than last lock, but must before the first commit*)
 Definition trace := list (tid * action).
+Definition ta := (tid, action).
 
 (* Return the “phase” of an action. *)
 Definition action_phase (a:action) :=
   match a with
-  | dummy => 0
   | start_txn => 1
   | read_item _ => 1
   | write_item _ => 1
@@ -77,6 +76,17 @@ Fixpoint trace_tid_phase tid t: nat :=
     else trace_tid_phase tid t'
   | [] => 0
   end.
+
+Fixpoint trace_tid_abort tid t: bool :=
+  match t with
+  | (tid', abort_txn) :: t' => 
+    if Nat.eq_dec tid tid'
+    then true
+    else trace_tid_abort tid t'
+  | _ :: t' => trace_tid_abort tid t'
+  | [] => false
+  end.
+
 
 Fixpoint trace_tid_actions tid t: trace :=
   match t with
@@ -126,6 +136,25 @@ Fixpoint locked_by (t:trace) default : tid :=
   | (_, complete_write_item _) :: _ => default
   | _ :: t' => locked_by t' default
   | [] => default
+  end.
+
+Fixpoint trace_outstanding_read_list tid t: list nat :=
+  match t with
+  | (tid', read_item ver) :: t' => 
+    if Nat.eq_dec tid tid'
+    then trace_outstanding_read_list tid t'
+    else tid :: trace_outstanding_read_list tid t'
+  | _ :: t' => trace_outstanding_read_list tid t'
+  | [] => []
+  end.
+
+Definition tid_in_phase_4 (tid: tid) (t: trace): Prop:=
+  trace_tid_phase tid t = 4.
+
+Fixpoint no_outstanding_read (tid: tid) (t: trace) (readlist: list nat): Prop:=
+  match readlist with
+  | [] => True
+  | tid' :: tail => (trace_tid_phase tid' t = 4) /\ (no_outstanding_read tid t tail)
   end.
 
 Inductive sto_trace : trace -> Prop :=
@@ -208,6 +237,63 @@ Inductive sto_trace : trace -> Prop :=
     -> sto_trace t
     -> sto_trace ((tid, commit_done_txn) :: t).
 Hint Constructors sto_trace.
+
+Inductive unconflicted_sto_trace : trace -> Prop :=
+
+| uc_empty_step : unconflicted_sto_trace []
+
+| uc_start_txn_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, start_txn)::t)
+    -> unconflicted_sto_trace ((tid, start_txn)::t)
+
+| uc_read_item_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, read_item (trace_write_version t)) :: t)
+    -> unconflicted_sto_trace ((tid, read_item (trace_write_version t)) :: t)
+
+| uc_write_item_step: forall t tid val,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, write_item val) :: t)
+    ->unconflicted_sto_trace ((tid, write_item val) :: t)
+
+| uc_try_commit_txn_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, try_commit_txn)::t)
+    -> unconflicted_sto_trace ((tid, try_commit_txn)::t)
+
+| uc_lock_write_item_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, lock_write_item) :: t)
+    -> no_outstanding_read tid t (trace_outstanding_read_list tid t)
+    -> unconflicted_sto_trace ((tid, lock_write_item) :: t)
+
+(*sequential point*)
+| uc_seq_point_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, seq_point) :: t)
+    -> unconflicted_sto_trace ((tid, seq_point) :: t)
+
+| uc_validate_read_item_step: forall t tid vers,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, validate_read_item vers) :: t)
+    -> unconflicted_sto_trace ((tid, validate_read_item vers) :: t)
+
+| uc_commit_txn_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, commit_txn) :: t)
+    -> unconflicted_sto_trace ((tid, commit_txn) :: t)
+
+| uc_complete_write_item_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, complete_write_item (S (trace_write_version t))) :: t)
+    -> unconflicted_sto_trace ((tid, complete_write_item (S (trace_write_version t))) :: t)
+
+| uc_commit_done_step: forall t tid,
+    unconflicted_sto_trace t
+    -> sto_trace ((tid, commit_done_txn) :: t)
+    -> unconflicted_sto_trace ((tid, commit_done_txn) :: t).
+Hint Constructors unconflicted_sto_trace.
 
 Definition example_txn:=
 [(2, commit_done_txn); (2, complete_write_item 1); (2, commit_txn); (2, validate_read_item 0); (2, seq_point); (2, lock_write_item); (2, try_commit_txn); (2, write_item 4); (2, read_item 0); (2, start_txn); (1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
@@ -306,21 +392,6 @@ Function check_is_serial_trace (tr: trace) : Prop :=
     end
   end.
 
-Function check_is_serial_trace2 (tr: trace) (al: list tid): Prop :=
-  match tr with 
-  | [] => True
-  | (tid, x) :: rest =>
-    if (In_bool tid al)
-    then check_is_serial_trace2 rest al
-    else 
-      match rest with
-      | [] => True
-      | (tid', y) :: _ => 
-                        (tid = tid' \/ trace_tid_actions tid rest = [])
-                          /\ check_is_serial_trace2 rest al
-      end
-  end.
-
 Definition is_not_seq_point (a:action) : bool :=
   match a with
   | seq_point => false
@@ -374,6 +445,21 @@ Function create_serialized_trace2 (t : trace) (seq_list : list tid) : trace :=
   | head :: tail => create_serialized_trace2 (swap_action_tid_repeat head t (length t)) tail
   end.
 
+Function check_is_serial_trace2 (tr: trace) (al: list tid): Prop :=
+  match tr with 
+  | [] => True
+  | (tid, x) :: rest =>
+    if (In_bool tid al)
+    then check_is_serial_trace2 rest al
+    else 
+      match rest with
+      | [] => True
+      | (tid', y) :: _ => 
+                        (tid = tid' \/ trace_tid_actions tid rest = [])
+                          /\ check_is_serial_trace2 rest al
+      end
+  end.
+
 Definition example:=
 [(1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
 Definition example2:=
@@ -390,15 +476,117 @@ Eval compute in create_serialized_trace2 example2 (seq_list example2).
 Eval compute in create_serialized_trace2 example3 (seq_list example3).
 Eval compute in check_is_serial_trace2 (create_serialized_trace2 example3 (seq_list example3)) (abort_list example3).
 
-Fixpoint trace_tid_abort tid t: bool :=
+Fixpoint remove_tid tid t: trace :=
   match t with
-  | (tid', abort_txn) :: t' => 
+  | (tid', a) :: t' =>
     if Nat.eq_dec tid tid'
-    then true
-    else trace_tid_abort tid t'
-  | _ :: t' => trace_tid_abort tid t'
-  | [] => false
+    then remove_tid tid t'
+    else (tid', a) :: (remove_tid tid t')
+  | [] => []
   end.
+
+Fixpoint remove_noncommitted t tidlist: trace :=
+  match tidlist with
+  | [] => t
+  | tid :: tail => remove_noncommitted (remove_tid tid t) tail
+  end.
+
+Fixpoint committed_tids t : list nat :=
+  match t with
+  | [] => []
+  | (tid, commit_txn) :: tail => tid :: (committed_tids tail)
+  | _ :: tail => committed_tids tail 
+  end.
+
+Fixpoint uncommitted_tids t (t' : trace) : list nat :=
+  match t with
+  | [] => []
+  | (tid, _) :: tail => if trace_tid_phase tid t =? 4
+                        then uncommitted_tids tail t'
+                        else tid :: (uncommitted_tids tail t')
+ end.
+
+Lemma remove_noncommit_ok tid t:
+  trace_tid_phase tid t <> 4
+  -> sto_trace t
+  -> sto_trace (remove_tid tid t).
+Proof.
+Admitted.
+
+Lemma remove_all_noncommit_ok t: (*the same as no_committed_sto_trace_is_sto_trace*)
+  sto_trace t
+  -> sto_trace (remove_noncommitted t (uncommitted_tids t t)).
+Proof.
+  intros ST.
+  induction ST; simpl; auto.
+  all: destruct (Nat.eq_dec tid0 tid0); subst.
+{
+  assert (1 <> 4) as not_equal; try omega; try apply Nat.eqb_neq in not_equal; simpl.
+  destruct (Nat.eq_dec tid0 tid0); subst; simpl.
+  
+  simpl.
+Admitted.
+
+Lemma unconflicted_is_sto_trace t:
+  unconflicted_sto_trace t
+  -> sto_trace t.
+Proof.
+  intros ST; induction ST; auto.
+Qed.
+
+Lemma noncommitted_sto_trace_is_unconflicted t :
+  sto_trace t
+  -> unconflicted_sto_trace (remove_noncommitted t (uncommitted_tids t t)).
+Proof.
+  intros ST.
+  induction ST; simpl; auto.
+Admitted.
+
+Lemma no_committed_sto_trace_is_sto_trace t :
+  sto_trace t
+  -> sto_trace (remove_noncommitted t (uncommitted_tids t t)).
+Proof.
+  intros ST; apply noncommitted_sto_trace_is_unconflicted in ST; apply unconflicted_is_sto_trace in ST; auto.
+Qed.
+
+Inductive swappable: tid -> action -> tid -> action -> Prop :=
+  | after_seq_point: forall (tid1 tid2: tid) (action1 action2: action),
+    tid1 <> tid2
+    -> 3 <= action_phase action1
+    -> action1 <> seq_point
+    -> swappable tid1 action1 tid2 action2
+  | before_seq_point: forall (tid1 tid2: tid) (action1 action2: action),
+    tid1 <> tid2
+    -> action_phase action2 < 3
+    -> swappable tid1 action1 tid2 action2.
+
+Lemma naive_swap tid1 tid2 action1 action2 t:
+  unconflicted_sto_trace ((tid1, action1) :: (tid2, action2) :: t)
+  -> swappable tid1 action1 tid2 action2
+  -> unconflicted_sto_trace ((tid2, action2):: (tid1, action1) :: t).
+Proof.
+Admitted.
+
+Lemma basic_swap tid1 tid2 action1 action2 t1 t2:
+  unconflicted_sto_trace (t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
+  -> swappable tid1 action1 tid2 action2
+  -> unconflicted_sto_trace (t1 ++ (tid2, action2):: (tid1, action1) :: t2).
+Proof.
+Admitted.
+
+Lemma is_serial tr :
+  sto_trace tr -> 
+  check_is_serial_trace2 (create_serialized_trace2 tr (seq_list tr)) (abort_list tr).
+Proof.
+  intros.
+  induction H.
+  simpl; auto.
+  simpl.
+  1-5: admit.
+  simpl.
+  induction t.
+  simpl. auto.
+Admitted.
 
 
 Fixpoint trace_filter_abort tid t: trace :=
@@ -418,6 +606,29 @@ Function filter_sto_trace (sto_trace: trace): trace:=
   | [] => []
   end.
 
+Lemma is_sto_trace tr:
+  sto_trace (filter_sto_trace tr) ->
+  sto_trace (create_serialized_trace2 (filter_sto_trace tr) (seq_list (filter_sto_trace tr))).
+Proof.
+  intros.
+  induction tr. simpl; auto.
+  destruct a. destruct a.
+  all: simpl; auto.
+  simpl in H.
+  clear IHtr.
+  simpl. auto.
+  destruct a. destruct a.
+  all: simpl in *; auto.
+  destruct (Nat.eq_dec t t1); subst.
+  auto.
+  inversion H.
+  destruct (Nat.eq_dec t t1); subst.
+  auto. 
+  simpl in *.
+  
+  
+
+
 Lemma no_abort_trace_same_as_before tr:
   sto_trace tr
   -> sto_trace (filter_sto_trace tr).
@@ -431,10 +642,6 @@ Proof.
   destruct a. simpl. destruct (Nat.eq_dec tid0 t1); subst.
 Admitted.
 
-Lemma is_serial tr :
-  check_is_serial_trace (create_serialized_trace2 tr (seq_list tr)).
-Proof.
-  intros.
   
 
 Lemma sto_trace_cons ta t:

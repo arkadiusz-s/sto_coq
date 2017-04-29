@@ -506,6 +506,14 @@ Fixpoint uncommitted_tids t (t' : trace) : list nat :=
                         else tid :: (uncommitted_tids tail t')
  end.
 
+Fixpoint filter_uncommitted t good : trace :=
+  match t with
+  | [] => []
+  | (tid, a) :: t' => if In_bool tid good || (action_phase a =? 4)
+                      then (tid, a) :: filter_uncommitted t' (tid :: good)
+                      else filter_uncommitted t' good
+  end.
+
 Lemma remove_noncommit_ok tid t:
   trace_tid_phase tid t <> 4
   -> sto_trace t

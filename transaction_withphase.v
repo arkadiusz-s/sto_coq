@@ -514,12 +514,73 @@ Fixpoint filter_uncommitted t good : trace :=
                       else filter_uncommitted t' good
   end.
 
+
+Lemma sto_trace_cons ta t:
+  sto_trace (ta :: t) -> sto_trace t.
+Proof.
+  intros.
+  inversion H; subst; auto.
+Qed.
+
+Lemma sto_trace_app t1 t2:
+  sto_trace (t1 ++ t2) -> sto_trace t2.
+Proof.
+  intros.
+  induction t1. rewrite app_nil_l in H. auto.
+  apply IHt1.
+  now apply sto_trace_cons with (ta:=a).
+Qed.
+
+Lemma remove_noncommit_phase_same tid tid0 t n:
+  sto_trace t
+  -> trace_tid_phase tid t = n
+  -> tid <> tid0
+  -> trace_tid_phase tid (remove_tid tid0 t) = n.
+Proof.
+  intros ST P NE.
+  induction t.
+  simpl; auto.
+  destruct a. simpl in *.
+  destruct (Nat.eq_dec tid0 t0); subst.
+  destruct (Nat.eq_dec tid t0); subst; try contradiction.
+  apply sto_trace_cons in ST. apply IHt in ST; auto.
+  destruct (Nat.eq_dec tid t0); subst.
+Admitted.
+
+
 Lemma remove_noncommit_ok tid t:
   trace_tid_phase tid t <> 4
   -> sto_trace t
   -> sto_trace (remove_tid tid t).
 Proof.
+  intros LT ST.
+  induction ST; simpl; auto.
+  destruct (Nat.eq_dec tid tid0); subst; simpl in *.
+  assert (trace_tid_phase tid0 t <> 4) as not_equal_4. { rewrite H0. omega. } apply IHST in not_equal_4; auto.
+  destruct (Nat.eq_dec tid tid0). contradiction. apply IHST in LT.
+  apply start_txn_step with (tid:= tid0) in LT; auto.
+  apply remove_noncommit_phase_same with (tid0 := tid) in H0; auto.
+
+  simpl in *.
+  destruct (Nat.eq_dec tid tid0); subst.
+  assert (trace_tid_phase tid0 t <> 4) as not_equal_4. { rewrite H. omega. } apply IHST in not_equal_4; auto.
+  apply IHST in LT.
+  
 Admitted.
+
+Lemma remove_noncommit_write_version_same tid t:
+  sto_trace t
+  -> trace_tid_phase tid t <> 4
+  -> trace_write_version t = trace_write_version (remove_tid tid t).
+Proof.
+  intros ST NE.
+  induction ST; simpl in *; auto.
+  destruct (Nat.eq_dec tid tid0).
+  
+  
+  
+  
+  
 
 Lemma remove_all_noncommit_ok t: (*the same as no_committed_sto_trace_is_sto_trace*)
   sto_trace t
@@ -651,23 +712,6 @@ Proof.
 Admitted.
 
   
-
-Lemma sto_trace_cons ta t:
-  sto_trace (ta :: t) -> sto_trace t.
-Proof.
-  intros.
-  inversion H; subst; auto.
-Qed.
-
-Lemma sto_trace_app t1 t2:
-  sto_trace (t1 ++ t2) -> sto_trace t2.
-Proof.
-  intros.
-  induction t1. rewrite app_nil_l in H. auto.
-  apply IHt1.
-  now apply sto_trace_cons with (ta:=a).
-Qed.
-
 Lemma sto_trace_nil_remove trace :
   sto_trace (trace ++ []) -> sto_trace trace.
 Proof.

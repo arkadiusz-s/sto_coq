@@ -238,6 +238,7 @@ Inductive sto_trace : trace -> Prop :=
     -> sto_trace ((tid, commit_done_txn) :: t).
 Hint Constructors sto_trace.
 
+(*
 Inductive unconflicted_sto_trace : trace -> Prop :=
 
 | uc_empty_step : unconflicted_sto_trace []
@@ -293,6 +294,15 @@ Inductive unconflicted_sto_trace : trace -> Prop :=
     unconflicted_sto_trace t
     -> sto_trace ((tid, commit_done_txn) :: t)
     -> unconflicted_sto_trace ((tid, commit_done_txn) :: t).
+*)
+
+
+Inductive unconflicted_sto_trace : trace -> Prop :=
+| construct_ust: forall tr,
+  sto_trace tr
+  -> forall tid action, In (tid, action) tr -> trace_tid_phase tid tr = 4
+  -> forall tid t1 t2, tr = t1 ++ (tid, lock_write_item) :: t2 -> no_outstanding_read tid t1 (trace_outstanding_read_list tid t1)
+  -> unconflicted_sto_trace tr.
 Hint Constructors unconflicted_sto_trace.
 
 Definition example_txn:=
@@ -576,11 +586,7 @@ Proof.
   intros ST NE.
   induction ST; simpl in *; auto.
   destruct (Nat.eq_dec tid tid0).
-  
-  
-  
-  
-  
+Admitted.
 
 Lemma remove_all_noncommit_ok t: (*the same as no_committed_sto_trace_is_sto_trace*)
   sto_trace t
@@ -628,12 +634,79 @@ Inductive swappable: tid -> action -> tid -> action -> Prop :=
     tid1 <> tid2
     -> action_phase action2 < 3
     -> swappable tid1 action1 tid2 action2.
+Hint Constructors swappable.
+
+Inductive swapstep1 : relation trace :=
+  | swap_step_after_seq_point : forall (tid1 tid2: tid) (action1 action2: action) (t1 t2: trace),
+    tid1 <> tid2
+    -> 3 <= action_phase action1
+    -> action1 <> seq_point
+    -> swapstep1 (t1 ++ (tid1, action1) :: (tid2, action2) :: t2) 
+              (t1 ++ (tid2, action2) :: (tid1, action1) :: t2)
+  | swap_step_before_seq_point: forall (tid1 tid2: tid) (action1 action2: action) (t1 t2: trace),
+    tid1 <> tid2
+    -> action_phase action2 < 3
+    -> swapstep1 (t1 ++ (tid1, action1) :: (tid2, action2) :: t2) 
+              (t1 ++ (tid2, action2) :: (tid1, action1) :: t2).
+
+Inductive swapsteps : relation trace :=
+  | swap_refl: forall tr1 tr2,
+      tr1 = tr2 ->
+      swapsteps tr1 tr2
+  | swao_trans: forall tr1 tr2 tr3,
+      swapsteps tr1 tr2 ->
+      swapstep1 tr2 tr3 ->
+      swapsteps tr1 tr3.
+Hint Constructors swapsteps.
+
+Lemma swappable_swapstep tid1 tid2 action1 action2 t1 t2:
+  swappable tid1 action1 tid2 action2
+  -> swapstep1 (t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
+              (t1 ++ (tid2, action2) :: (tid1, action1) :: t2).
+Proof.
+  intros SW.
+  induction SW; subst; simpl; auto.
+  apply swap_step_after_seq_point; auto.
+  apply swap_step_before_seq_point; auto.
+Qed.
+
+Lemma swapstep_swappable tid1 tid2 action1 action2 t1 t2:
+  swapstep1 (t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
+              (t1 ++ (tid2, action2) :: (tid1, action1) :: t2)
+  -> swappable tid1 action1 tid2 action2.
+Proof.
+  intros ST.
+  induction ST.
+Admitted. (*Unsolved*)
+
+Lemma create_serialized_trace_is_by_swapsteps t:
+  unconflicted_sto_trace t 
+  -> swapsteps t (create_serialized_trace2 t (seq_list t)).
+Proof.
+  intros UST.
+  inversion UST.
+  simpl; auto.
+  
+Admitted.
+
+Lemma unconflict_tids_must_be_phase_4 tr tid action:
+  unconflicted_sto_trace tr
+  -> In (tid, action) tr
+  -> trace_tid_phase tid tr = 4.
+Proof.
+  intros UST IN.
+  induction UST.
+Admitted.
 
 Lemma naive_swap tid1 tid2 action1 action2 t:
   unconflicted_sto_trace ((tid1, action1) :: (tid2, action2) :: t)
   -> swappable tid1 action1 tid2 action2
   -> unconflicted_sto_trace ((tid2, action2):: (tid1, action1) :: t).
 Proof.
+  intros UST SW.
+  induction SW; subst.
+  
+  
 Admitted.
 
 Lemma basic_swap tid1 tid2 action1 action2 t1 t2:
@@ -641,21 +714,72 @@ Lemma basic_swap tid1 tid2 action1 action2 t1 t2:
   -> swappable tid1 action1 tid2 action2
   -> unconflicted_sto_trace (t1 ++ (tid2, action2):: (tid1, action1) :: t2).
 Proof.
+  intros UST SW.
+  induction SW.
 Admitted.
 
-Lemma is_serial tr :
-  sto_trace tr -> 
-  check_is_serial_trace2 (create_serialized_trace2 tr (seq_list tr)) (abort_list tr).
+Lemma trace_if_swappable_has_at_least_two_steps t1 t2 :
+  swapstep1 t1 t2
+  -> exists tid1 tid2 action1 action2 t t',
+     t1 = t ++ (tid1, action1) :: (tid2, action2) :: t' /\
+     t2 = t ++ (tid2, action2) :: (tid1, action1) :: t'.
 Proof.
   intros.
-  induction H.
-  simpl; auto.
-  simpl.
+  inversion H.
+  all: exists tid1; exists tid2; exists action1; 
+  exists action2; exists t0; exists t3; auto.
+Qed.
+
+Lemma swapstep1_preserve_ust t1 t2 :
+  unconflicted_sto_trace t1
+  -> swapstep1 t1 t2
+  -> unconflicted_sto_trace t2.
+Proof.
+  intros.
+  assert (swapstep1 t1 t2). { auto. }
+  apply trace_if_swappable_has_at_least_two_steps in H0.
+  destruct H0 as [t' [t [action2 [action1 [tid2 [ tid1 H0]]]]]].
+  destruct H0.
+  subst.
+  apply basic_swap; auto.
+  apply swapstep_swappable with (t1 := tid2) (t2 := tid1). auto.
+Qed.
+
+Lemma swapsteps_preserve_ust t1 t2 :
+  unconflicted_sto_trace t1 
+  -> swapsteps t1 t2
+  -> unconflicted_sto_trace t2.
+Proof.
+  intros UST SS.
+  induction SS.
+  now rewrite <- H.
+  apply IHSS in UST.
+  now apply swapstep1_preserve_ust in H.
+Qed.
+
+
+Lemma is_serial tr :
+  unconflicted_sto_trace tr ->
+  check_is_serial_trace (create_serialized_trace2 tr (seq_list tr)).
+Proof.
+  intros.
+  induction H; subst; simpl; auto.
+  
   1-5: admit.
   simpl.
   induction t.
   simpl. auto.
 Admitted.
+
+Lemma is_sto_trace tr :
+  unconflicted_sto_trace tr ->
+  unconflicted_sto_trace (create_serialized_trace2 tr (seq_list tr)).
+Proof.
+  intros UST.
+  assert (swapsteps tr (create_serialized_trace2 tr (seq_list tr))).
+  now apply create_serialized_trace_is_by_swapsteps in UST.
+  now apply swapsteps_preserve_ust with (t1:=tr).
+Qed.
 
 
 Fixpoint trace_filter_abort tid t: trace :=

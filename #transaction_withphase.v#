@@ -443,40 +443,31 @@ Function swap_action_tid (tid: tid) (t:trace) {measure length t} : trace :=
 Proof.
   all: intros; simpl; auto.
 Defined.
-  
-Definition swap_once tid t1 tid1 action1 tid2 action2 t2: trace:=
-  if Nat.eq_dec tid1 tid2 then t1 ++ (tid1, action1) :: (tid2, action2) :: t2
-  else 
-    if (tid =? tid1) && (3 <=? action_phase action1) && (is_not_seq_point action1)
-    then t1 ++ (tid2, action2) :: (tid1, action1) :: t2
-    else if (tid =? tid2) && (action_phase action2 <? 3)
-        then t1 ++ (tid2, action2) :: (tid1, action1) :: t2
-    else t1 ++ (tid1, action1) :: (tid2, action2) :: t2.
-(*
-Function swap_once2 trace: trace:=
-  match trace with
-  | [] => []
-  | (tid1, action1) :: (tid2, action2) :: tail
-      if validate_swap 
-      then (tid2, action2) :: (tid1, action1) :: tail.
 
-Inductive is_serial: trace -> Prop :=
-  | serial_constructor: forall t1 tid1 action1 tid2 action2 t2,
-      committed_unconflicted_sto_trace (t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
-      -> (forall tid, In (tid, action) (t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
-        -> swap_once tid t1 tid1 action1 tid2 action2 t2 = t1 ++ (tid1, action1) :: (tid2, action2) :: t2)
-      -> is_serial (t1 ++ (tid1, action1) :: (tid2, action2) :: t2).
-*)
+Fixpoint swap_once' tid (t:trace) :=
+  match t with
+  | (tid1, a1) :: (tid2, a2) :: t' =>
+    (* maybe swap but only swap if equals tid *)
+      if Nat.eq_dec tid1 tid2 
+        then (tid1, a1)::(tid2, a2)::(swap_once' tid t')
+      else if (tid =? tid1) && (3 <=? action_phase a1) && (is_not_seq_point a1)
+        then (tid2, a2)::(tid1, a1)::(swap_once' tid t')
+      else if (tid =? tid2) && (action_phase a2 <? 3)
+        then (tid2, a2)::(tid1, a1)::(swap_once' tid t')
+      else (tid1, a1)::(tid2, a2)::(swap_once' tid t')
+  | _ => t
+  end.
+
 Inductive is_serial: trace -> Prop :=
   | serial_constructor: forall t,
       committed_unconflicted_sto_trace t
-      -> (forall t1 tid1 action1 tid2 action2 t2 tid action,
-          t = t1 ++ (tid1, action1) :: (tid2, action2) :: t2
-          -> In (tid, action) t
-          -> swap_once tid t1 tid1 action1 tid2 action2 t2 = t)
+      -> (forall tid, swap_once' tid t = t)
       -> is_serial t.
 
-  
+
+
+
+
 
 Function swap_action_tid_repeat (tid: tid) (t : trace) (n : nat) : trace :=
   match n with
@@ -2036,3 +2027,6 @@ Proof.
   destruct (Nat.eq_dec tid0 tid0).
   admit. contradiction.
 Admitted.
+
+forall t swap once t  = t
+forall t2 not swapstep1 t t2

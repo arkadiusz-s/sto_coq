@@ -307,18 +307,63 @@ Inductive committed_unconflicted_sto_trace : trace -> Prop :=
   -> committed_unconflicted_sto_trace tr.
 Hint Constructors committed_unconflicted_sto_trace.
 
-Definition example_txn:=
-[(2, commit_done_txn); (2, complete_write_item 1); (2, commit_txn); (2, validate_read_item 0); (2, seq_point); (2, lock_write_item); (2, try_commit_txn); (2, write_item 4); (2, read_item 0); (2, start_txn); (1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
+Definition is_not_seq_point (a:action) : bool :=
+  match a with
+  | seq_point => false
+  | _ => true
+  end.
 
-Definition example_txn2:=
-[(3, commit_done_txn); (3, commit_txn); (3, validate_read_item 1); (3, seq_point); (3, try_commit_txn); (3, read_item 1); (3, start_txn); (1, abort_txn); (1, validate_read_item 1); (1, try_commit_txn); (2, commit_done_txn); (2, complete_write_item 1); (2, commit_txn); (2, validate_read_item 0); (2, seq_point); (2, lock_write_item); (2, try_commit_txn); (2, write_item 4); (1, read_item 0); (2, read_item 0); (2, start_txn); (1, start_txn)].
+Fixpoint swap_once tid (t:trace) :=
+  match t with
+  | (tid1, a1) :: (tid2, a2) :: t' =>
+    (* maybe swap but only swap if equals tid *)
+      if Nat.eq_dec tid1 tid2 
+        then (tid1, a1)::(tid2, a2)::(swap_once tid t')
+      else if (tid =? tid1) && (3 <=? action_phase a1) && (is_not_seq_point a1)
+        then (tid2, a2)::(tid1, a1)::(swap_once tid t')
+      else if (tid =? tid2) && (action_phase a2 <? 3)
+        then (tid2, a2)::(tid1, a1)::(swap_once tid t')
+      else (tid1, a1)::(tid2, a2)::(swap_once tid t')
+  | _ => t
+  end.
 
-(*
-Returns the serialized sequence of transactions in the STO trace based on seq_point of each transaction
-The first element (tid) of the sequence is the first transaction that completes in the serial trace
-Note that STO-trace is constructed in a reverse order: the first (tid * action) pair is the last operation in the trace
-*)
+Inductive is_serial: trace -> Prop :=
+  | serial_constructor: forall t,
+      committed_unconflicted_sto_trace t
+      -> (forall tid, swap_once tid t = t)
+      -> is_serial t.
 
+Lemma unconflicted_is_sto_trace t:
+  unconflicted_sto_trace t
+  -> sto_trace t.
+Proof.
+  intros ST; induction ST; auto.
+Qed.
+
+Lemma committed_unconflicted_sto_trace_is_sto_trace t:
+  committed_unconflicted_sto_trace t
+  -> sto_trace t.
+Proof.
+  intros CUST; induction CUST; induction H; simpl; auto.
+Qed.
+
+Lemma is_serial_trace_is_sto_trace t:
+  is_serial t
+  -> sto_trace t.
+Proof.
+  intros IS; induction IS; induction H; induction H; simpl; auto.
+Qed.
+
+Lemma perm_serial_trace_cust t :
+  is_serial t
+  -> (exists t', committed_unconflicted_sto_trace t'-> Permutation t t').
+Proof.
+  intros IS.
+  induction IS.
+  exists t.
+  intros.
+  auto.
+Qed.
 
 Function seq_list (sto_trace: trace): list nat:=
   match sto_trace with
@@ -327,190 +372,60 @@ Function seq_list (sto_trace: trace): list nat:=
   | _ :: tail => seq_list tail
   end.
 
-Function abort_list (sto_trace: trace): list nat:=
-  match sto_trace with
-  | [] => []
-  | (tid, abort_txn) :: tail => tid :: abort_list tail
-  | _ :: tail => abort_list tail
-  end.
-
-(*
-Function seq_list (sl: list nat) (trace : trace) : list nat:=
-  match sl with 
-  | [] => []
-  | hd :: sl' => if trace_tid_abort hd trace
-                then seq_list sl' trace
-                else hd :: (seq_list sl' trace)
-  end.
-
-Eval compute in seq_list_all example_txn.
-
-Eval compute in seq_list_all example_txn2.
-*)
-
-(*
-Function create_serialized_trace (sto_trace: trace) (sto_trace_copy: trace): trace:=
-  match sto_trace with
-  | [] => []
-  | (tid, seq_point) :: tail
-    => (*if trace_tid_abort tid sto_trace (*this tid is aborted*)
-       then create_serialized_trace tail sto_trace_copy
-       else trace_tid_actions tid sto_trace_copy ++ create_serialized_trace tail sto_trace_copy*)
-      trace_tid_actions tid sto_trace_copy 
-      ++ create_serialized_trace tail sto_trace_copy
-  | _ :: tail => create_serialized_trace tail sto_trace_copy
-  end.
-*)
-
-(*
-Check whether an element a is in the list l
-*)
 Fixpoint In_bool (a:nat) (l:list nat) : bool :=
   match l with
     | [] => false
     | b :: m => (b =? a) || In_bool a m
   end.
 
-Function create_serialized_trace (sto_trace: trace) (seqls : list nat): trace:=
-  match seqls with
+Function exec (sto_trace: trace) (commit_tid: list nat) : list (tid * action) :=
+  match sto_trace with
   | [] => []
-  | head :: tail 
-    => 
-    (*if trace_tid_abort head sto_trace (*this tid is aborted*)
-      then create_serialized_trace sto_trace tail
-      else trace_tid_actions head sto_trace ++ create_serialized_trace sto_trace tail
-    *)
-      trace_tid_actions head sto_trace 
-      ++ create_serialized_trace sto_trace tail
+  | (tid, action) :: tail => if (In_bool tid commit_tid)
+            then match action with
+                | read_item _ => (tid, action) :: exec tail commit_tid
+                | write_item _ => (tid, action) :: exec tail commit_tid
+                | _ => exec tail commit_tid
+                 end
+            else exec tail commit_tid
   end.
 
+Lemma serial_trace_same_result t:
+  is_serial t
+  -> exists t', (committed_unconflicted_sto_trace t') /\ Permutation (exec t (seq_list t)) (exec t' (seq_list t')).
+Proof.
+  intros.
+  induction H.
+  exists t.
+  split; auto.
+Qed.
+
+
+Lemma perm_cust_serial_trace t :
+  committed_unconflicted_sto_trace t
+  -> (exists t', is_serial t' -> Permutation t t').
+Proof.
+  intros CUST IS.
+  induction IS.
+Admitted.
+
+Lemma serial_trace_is_subset_sto_trace t:
+  sto_trace t
+  -> (exists t', is_serial t'
+    -> (forall tid, filter func t' <> empty
+      -> filter func t' = filter func t)).
+
+Function seq_list (sto_trace: trace): list nat:=
+  match sto_trace with
+  | [] => []
+  | (tid, seq_point) :: tail => tid :: seq_list tail
+  | _ :: tail => seq_list tail
+  end.
 
 (*
-The function checks if a trace is a serial trace by making sure that
-tid is only increaing as we traverse the trace
-In this function, we assume that the trace is in the correct order.
-That is, the first (tid*action) in the trace is actually the first one that gets to be executed
+Check whether an element a is in the list l
 *)
 
-Function check_is_serial_trace (tr: trace) : Prop :=
-  match tr with 
-  | [] => True
-  | (tid, x) :: rest =>
-    match rest with
-    | [] => True
-    | (tid', y) :: _ => 
-                      (tid = tid' \/ trace_tid_actions tid rest = [])
-                        /\ check_is_serial_trace rest
-    end
-  end.
-
-Definition is_not_seq_point (a:action) : bool :=
-  match a with
-  | seq_point => false
-  | _ => true
-  end.
-  
-
-Function swap_action_tid (tid: tid) (t:trace) {measure length t} : trace :=
-  match t with
-  | [] => []
-  | (tid1, action1) :: tail' =>
-    match tail' with
-    | [] => [(tid1, action1)]
-    | (tid2, action2) :: tail =>
-      if tid1 =? tid2
-      then
-          (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
-      else
-          if tid1 =? tid
-          then
-               if (3 <=? action_phase action1) && (is_not_seq_point action1)
-               then 
-                    (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
-               else 
-                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
-          else
-               if tid2 =? tid
-               then if action_phase action2 <? 3
-                    then 
-                         (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
-                    else 
-                         (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
-               else 
-                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
-    end
-  end.
-Proof.
-  all: intros; simpl; auto.
-Defined.
-
-Fixpoint swap_once' tid (t:trace) :=
-  match t with
-  | (tid1, a1) :: (tid2, a2) :: t' =>
-    (* maybe swap but only swap if equals tid *)
-      if Nat.eq_dec tid1 tid2 
-        then (tid1, a1)::(tid2, a2)::(swap_once' tid t')
-      else if (tid =? tid1) && (3 <=? action_phase a1) && (is_not_seq_point a1)
-        then (tid2, a2)::(tid1, a1)::(swap_once' tid t')
-      else if (tid =? tid2) && (action_phase a2 <? 3)
-        then (tid2, a2)::(tid1, a1)::(swap_once' tid t')
-      else (tid1, a1)::(tid2, a2)::(swap_once' tid t')
-  | _ => t
-  end.
-
-Inductive is_serial: trace -> Prop :=
-  | serial_constructor: forall t,
-      committed_unconflicted_sto_trace t
-      -> (forall tid, swap_once' tid t = t)
-      -> is_serial t.
-
-
-
-
-
-
-Function swap_action_tid_repeat (tid: tid) (t : trace) (n : nat) : trace :=
-  match n with
-  | 0 => t
-  | S m => swap_action_tid_repeat tid (swap_action_tid tid t) m
-  end.
-
-Function create_serialized_trace2 (t : trace) (seq_list : list tid) : trace :=
-  match seq_list with
-  | [] => t
-  | head :: tail => create_serialized_trace2 (swap_action_tid_repeat head t (length t)) tail
-  end.
-
-Function check_is_serial_trace2 (tr: trace) (al: list tid): Prop :=
-  match tr with 
-  | [] => True
-  | (tid, x) :: rest =>
-    if (In_bool tid al)
-    then check_is_serial_trace2 rest al
-    else 
-      match rest with
-      | [] => True
-      | (tid', y) :: _ => 
-                        (tid = tid' \/ trace_tid_actions tid rest = [])
-                          /\ check_is_serial_trace2 rest al
-      end
-  end.
-
-Definition example:=
-[(1, commit_done_txn); (1, commit_txn); (1, validate_read_item 0); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (1, start_txn)].
-Definition example2:=
-[(2, commit_done_txn); (2, complete_write_item 1); (1, commit_done_txn); (1, commit_txn); (2, commit_txn);  (2, seq_point); (2, lock_write_item); (1, validate_read_item 0); (2, try_commit_txn); (2, write_item 4); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (2, start_txn); (1, start_txn)].
-Definition example3:=
-[(2, commit_done_txn); (2, complete_write_item 1); (1, commit_done_txn); (1, commit_txn); (3, abort_txn); (2, commit_txn);  (2, seq_point); (2, lock_write_item); (1, validate_read_item 0); (2, try_commit_txn); (2, write_item 4); (3, start_txn); (1, seq_point); (1, try_commit_txn); (1, read_item 0); (2, start_txn); (1, start_txn)].
-
-Eval compute in seq_list example.
-Eval compute in swap_action_tid 1 example.
-Eval compute in swap_action_tid_repeat 1 example2 15.
-Eval compute in swap_action_tid_repeat 2 example2 15.
-Eval compute in create_serialized_trace2 example (seq_list example).
-Eval compute in create_serialized_trace2 example2 (seq_list example2).
-Eval compute in create_serialized_trace2 example3 (seq_list example3).
-Eval compute in check_is_serial_trace2 (create_serialized_trace2 example3 (seq_list example3)) (abort_list example3).
 
 Fixpoint remove_tid tid t: trace :=
   match t with
@@ -628,12 +543,6 @@ Proof.
   simpl.
 Admitted.
 
-Lemma unconflicted_is_sto_trace t:
-  unconflicted_sto_trace t
-  -> sto_trace t.
-Proof.
-  intros ST; induction ST; auto.
-Qed.
 
 Lemma noncommitted_sto_trace_is_unconflicted t :
   sto_trace t

@@ -462,12 +462,20 @@ Proof.
   destruct create_serialized_trace3. simpl. auto.
 Admitted.
 
+
+Lemma swap1_preserve_ust t :
+  unconflicted_sto_trace t
+  -> (forall tid, unconflicted_sto_trace (swap1 t tid)).
+Proof.
+  intros UST tid.
+Admitted.
+
 Lemma swap1_preserve_cust t :
   committed_unconflicted_sto_trace t
   -> (forall tid, committed_unconflicted_sto_trace (swap1 t tid)).
 Proof.
   intros CUST tid.
-  induction t.
+  functional induction (swap1 t tid).
   simpl. auto.
   destruct a.
   induction t.
@@ -477,20 +485,20 @@ Proof.
   destruct (Nat.eq_dec t0 t1).
 Admitted.
 
-Lemma swaps_preserve_cust t:
-  committed_unconflicted_sto_trace t
-  -> (forall num tid, committed_unconflicted_sto_trace (swaps t tid num)).
+Lemma swaps_preserve_cust num:
+  forall t, committed_unconflicted_sto_trace t
+  -> (forall tid, committed_unconflicted_sto_trace (swaps t tid num)).
 Proof.
-  intros CUST num tid.
-  induction num.
+  induction num;
+  intros t CUST tid.
   simpl. auto.
   simpl.
-  apply swap1_preserve_cust with (tid:= tid) in CUST.
-  apply construct_cust.
-Admitted.
+  apply IHnum.
+  now apply swap1_preserve_cust with (tid:= tid) in CUST.
+Qed.
 
 (******************************************)
-Lemma create_serial_trace_is_cust t:
+Theorem create_serial_trace_is_cust t:
   committed_unconflicted_sto_trace t
   -> committed_unconflicted_sto_trace (create_serialized_trace3 t (seq_list t)).
 Proof.
@@ -504,7 +512,7 @@ Admitted.
 (******************************************)
 
 (******************************************)
-Lemma create_serial_trace_is_serial t:
+Theorem create_serial_trace_is_serial t:
   committed_unconflicted_sto_trace t
   -> is_serial (create_serialized_trace3 t (seq_list t)).
 Proof.
@@ -519,7 +527,7 @@ Qed.
 (******************************************)
 
 (******************************************)
-Lemma create_serialized_trace_does_not_reorder t:
+Theorem create_serialized_trace_does_not_reorder t:
   committed_unconflicted_sto_trace t
   -> forall tid, filter tid t = filter tid (create_serialized_trace3 t (seq_list t)).
 Proof.
@@ -542,6 +550,12 @@ Fixpoint remove_noncommitted t tidlist: trace :=
   | tid :: tail => remove_noncommitted (remove_tid tid t) tail
   end.
 
+Fixpoint noncommitted tid t: Prop:=
+  match (trace_tid_phase tid t) with
+  | 4 => True
+  | _ => False
+  end.
+
 Fixpoint uncommitted_tids t (t' : trace) : list nat :=
   match t with
   | [] => []
@@ -558,8 +572,23 @@ Fixpoint filter_uncommitted t good : trace :=
                       else filter_uncommitted t' good
   end.
 
+Lemma remove_one_noncommitted_preserve_st tid t:
+  sto_trace t
+  -> noncommitted tid t
+  -> sto_trace (remove_noncommitted t [tid]).
+
+Lemma remove_all_noncommitted_preserve_st t ul:
+  sto_trace t
+  -> (forall tid, In tid l -> noncommitted tid t)
+  -> sto_trace (remove_noncommitted t l).
+
+Lemma uncommitted_tid_list_is_noncommitted_tids tid t:
+  In tid (uncommitted_tids t t)
+  -> noncommitted tid t.
+
+
 (******************************************)
-Lemma remove_noncommitted_sto_trace_is_cust t :
+Theorem remove_noncommitted_sto_trace_is_cust t :
   sto_trace t
   -> committed_unconflicted_sto_trace (remove_noncommitted t (uncommitted_tids t t)).
 Proof.

@@ -378,54 +378,154 @@ Fixpoint In_bool (a:nat) (l:list nat) : bool :=
     | b :: m => (b =? a) || In_bool a m
   end.
 
-Function exec (sto_trace: trace) (commit_tid: list nat) : list (tid * action) :=
-  match sto_trace with
+Function swap_action_tid (tid: tid) (t:trace) {measure length t} : trace :=
+  match t with
   | [] => []
-  | (tid, action) :: tail => if (In_bool tid commit_tid)
-            then match action with
-                | read_item _ => (tid, action) :: exec tail commit_tid
-                | write_item _ => (tid, action) :: exec tail commit_tid
-                | _ => exec tail commit_tid
-                 end
-            else exec tail commit_tid
+  | (tid1, action1) :: tail' =>
+    match tail' with
+    | [] => [(tid1, action1)]
+    | (tid2, action2) :: tail =>
+      if tid1 =? tid2
+      then
+          (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
+      else
+          if tid1 =? tid
+          then
+               if (3 <=? action_phase action1) && (is_not_seq_point action1)
+               then 
+                    (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
+               else 
+                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
+          else
+               if tid2 =? tid
+               then if action_phase action2 <? 3
+                    then 
+                         (tid2, action2) :: swap_action_tid tid ((tid1, action1) :: tail)
+                    else 
+                         (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
+               else 
+                    (tid1, action1) :: swap_action_tid tid ((tid2, action2) :: tail)
+    end
+  end.
+Proof.
+  all: intros; simpl; auto.
+Defined.
+  
+
+Function swap1 t tid: trace :=
+  match t with 
+  | (tid1, a1) :: tail =>
+    match tail with
+    | (tid2, a2) :: tail' =>
+    if Nat.eq_dec tid1 tid2 
+        then (tid1, a1) :: (swap1 tail tid)
+      else if (tid =? tid1) && (3 <=? action_phase a1) && (is_not_seq_point a1)
+        then (tid2, a2)::(tid1, a1)::tail'
+      else if (tid =? tid2) && (action_phase a2 <? 3)
+        then (tid2, a2)::(tid1, a1)::tail'
+      else (tid1, a1) :: (swap1 tail tid)
+    | [] => [(tid1,a1)]
+    end
+  | [] => []
   end.
 
-Lemma serial_trace_same_result t:
-  is_serial t
-  -> exists t', (committed_unconflicted_sto_trace t') /\ Permutation (exec t (seq_list t)) (exec t' (seq_list t')).
-Proof.
-  intros.
-  induction H.
-  exists t.
-  split; auto.
-Qed.
+Function swaps t tid num: trace:=
+  match num with
+  | 0 => t
+  | S n => swaps (swap1 t tid) tid n
+  end.
+
+Function create_serialized_trace3 (t: trace) (sl : list nat):=
+  match sl with
+  | head :: tail => create_serialized_trace3 (swaps t head ((length t) * (length t))) tail
+  | [] => t
+  end.
 
 
-Lemma perm_cust_serial_trace t :
+Function swap_action_tid_repeat (tid: tid) (t : trace) (n : nat) : trace :=
+  match n with
+  | 0 => t
+  | S m => swap_action_tid_repeat tid (swap_action_tid tid t) m
+  end.
+
+Function create_serialized_trace2 (t : trace) (seq_list : list tid) : trace :=
+  match seq_list with
+  | [] => t
+  | head :: tail => create_serialized_trace2 (swap_action_tid_repeat head t (length t)) tail
+end.
+
+Lemma create_serial_trace_no_swap t:
   committed_unconflicted_sto_trace t
-  -> (exists t', is_serial t' -> Permutation t t').
+  -> (forall tid, (swap_once tid (create_serialized_trace3 t (seq_list t)) = create_serialized_trace3 t (seq_list t))).
 Proof.
-  intros CUST IS.
-  induction IS.
+  intros CUST.
+  destruct create_serialized_trace3. simpl. auto.
 Admitted.
 
-Lemma serial_trace_is_subset_sto_trace t:
-  sto_trace t
-  -> (exists t', is_serial t'
-    -> (forall tid, filter func t' <> empty
-      -> filter func t' = filter func t)).
+Lemma swap1_preserve_cust t :
+  committed_unconflicted_sto_trace t
+  -> (forall tid, committed_unconflicted_sto_trace (swap1 t tid)).
+Proof.
+  intros CUST tid.
+  induction t.
+  simpl. auto.
+  destruct a.
+  induction t.
+  simpl. auto.
+  simpl.
+  destruct a0.
+  destruct (Nat.eq_dec t0 t1).
+Admitted.
 
-Function seq_list (sto_trace: trace): list nat:=
-  match sto_trace with
-  | [] => []
-  | (tid, seq_point) :: tail => tid :: seq_list tail
-  | _ :: tail => seq_list tail
-  end.
+Lemma swaps_preserve_cust t:
+  committed_unconflicted_sto_trace t
+  -> (forall num tid, committed_unconflicted_sto_trace (swaps t tid num)).
+Proof.
+  intros CUST num tid.
+  induction num.
+  simpl. auto.
+  simpl.
+  apply swap1_preserve_cust with (tid:= tid) in CUST.
+  apply construct_cust.
+Admitted.
 
-(*
-Check whether an element a is in the list l
-*)
+(******************************************)
+Lemma create_serial_trace_is_cust t:
+  committed_unconflicted_sto_trace t
+  -> committed_unconflicted_sto_trace (create_serialized_trace3 t (seq_list t)).
+Proof.
+  intros CUST.
+  induction (seq_list t).
+  simpl.
+  auto.
+  simpl.
+  apply swaps_preserve_cust with (num:= (length t * length t)) (tid:= a) in CUST.
+Admitted.
+(******************************************)
 
+(******************************************)
+Lemma create_serial_trace_is_serial t:
+  committed_unconflicted_sto_trace t
+  -> is_serial (create_serialized_trace3 t (seq_list t)).
+Proof.
+  intros CUST.
+  assert (committed_unconflicted_sto_trace t); auto.
+  apply serial_constructor.
+  apply create_serial_trace_is_cust; auto.
+  intros.
+  apply create_serial_trace_no_swap with (tid := tid0) in H.
+  auto.
+Qed.
+(******************************************)
+
+(******************************************)
+Lemma create_serialized_trace_does_not_reorder t:
+  committed_unconflicted_sto_trace t
+  -> forall tid, filter tid t = filter tid (create_serialized_trace3 t (seq_list t)).
+Proof.
+  intros CUST tid.
+Admitted.
+(******************************************)
 
 Fixpoint remove_tid tid t: trace :=
   match t with
@@ -440,13 +540,6 @@ Fixpoint remove_noncommitted t tidlist: trace :=
   match tidlist with
   | [] => t
   | tid :: tail => remove_noncommitted (remove_tid tid t) tail
-  end.
-
-Fixpoint committed_tids t : list nat :=
-  match t with
-  | [] => []
-  | (tid, commit_txn) :: tail => tid :: (committed_tids tail)
-  | _ :: tail => committed_tids tail 
   end.
 
 Fixpoint uncommitted_tids t (t' : trace) : list nat :=
@@ -464,6 +557,43 @@ Fixpoint filter_uncommitted t good : trace :=
                       then (tid, a) :: filter_uncommitted t' (tid :: good)
                       else filter_uncommitted t' good
   end.
+
+(******************************************)
+Lemma remove_noncommitted_sto_trace_is_cust t :
+  sto_trace t
+  -> committed_unconflicted_sto_trace (remove_noncommitted t (uncommitted_tids t t)).
+Proof.
+  intros ST.
+  induction ST; simpl; auto.
+Admitted.'
+(******************************************)
+
+
+
+
+
+
+
+
+
+Lemma perm_cust_serial_trace t :
+  committed_unconflicted_sto_trace t
+  -> Permutation t (create_serialized_trace2 t (seq_list t)).
+Proof.
+  intros CUST.
+  destruct create_serialized_trace2. simpl; auto.
+Admitted.
+
+Lemma serial_trace_is_subset_sto_trace t:
+  sto_trace t
+  -> (exists t', is_serial t'
+    -> (forall tid, filter func t' <> empty
+      -> filter func t' = filter func t)).
+
+(*
+Check whether an element a is in the list l
+*)
+
 
 
 Lemma sto_trace_cons ta t:

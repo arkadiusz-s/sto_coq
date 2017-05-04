@@ -340,12 +340,14 @@ Proof.
   intros ST; induction ST; auto.
 Qed.
 
-Lemma committed_unconflicted_sto_trace_is_sto_trace t:
+(******************************************)
+Theorem committed_unconflicted_sto_trace_is_sto_trace t:
   committed_unconflicted_sto_trace t
   -> sto_trace t.
 Proof.
   intros CUST; induction CUST; simpl; auto.
 Qed.
+(******************************************)
 
 Lemma is_serial_trace_is_sto_trace t:
   is_serial t
@@ -740,6 +742,14 @@ Proof.
   
 Admitted.
 
+Lemma swap1_preserve_st2 t :
+  committed_unconflicted_sto_trace t
+  -> (forall tid, sto_trace (swap1 t tid)).
+Proof.
+  intros CUST.
+  induction CUST.
+Admitted.
+
 Lemma swap1_preserve_phase4 t:
   committed_unconflicted_sto_trace t
   -> (forall tid tid0, trace_tid_phase tid (swap1 t tid0) > 0 -> trace_tid_phase tid (swap1 t tid0) = 4).
@@ -916,6 +926,13 @@ Fixpoint uncommitted_tids (t t' : trace) : list nat :=
                         else tid :: (uncommitted_tids tail t')
  end.
 
+Fixpoint uncommitted_tids2 (t: trace) (sl: list nat) : list nat :=
+  match sl with
+  | [] => []
+  | head :: tail => if (trace_tid_phase head t =? 4)
+                        then uncommitted_tids2 t tail
+                        else head :: (uncommitted_tids2 t tail)
+ end.
 Fixpoint filter_uncommitted t good : trace :=
   match t with
   | [] => []
@@ -937,50 +954,83 @@ Proof.
 
 Admitted.
 
-Lemma uncommitted_tid_list_is_noncommitted_tids tid t:
-  In tid (uncommitted_tids t t)
+Lemma uncommitted_tid_list_is_noncommitted_tids_strong tid t l:
+  In tid (uncommitted_tids2 t l)
   -> noncommitted tid t.
 Proof.
   intros.
-  induction t.
-  simpl; auto.
-  simpl in *. inversion H.
-  destruct a.
+  induction l.
+  simpl in *; inversion H.
   simpl in *.
-  destruct (Nat.eq_dec t0 t0); try contradiction.
-Admitted.
+  unfold noncommitted in *.
+  destruct (Nat.eq_dec (trace_tid_phase a t) 4).
+  apply (Nat.eqb_eq) in e. rewrite e in *.
+  apply IHl in H. auto.
+  apply (Nat.eqb_neq) in n. rewrite n in *.
+  simpl in H. destruct H; subst.
+  apply (Nat.eqb_neq) in n. auto.
+  apply IHl in H. auto.
+Qed.
+
+Lemma uncommitted_tid_list_is_noncommitted_tids tid t:
+  In tid (uncommitted_tids2 t (seq_list t))
+  -> noncommitted tid t.
+Proof.
+  intros.
+  apply uncommitted_tid_list_is_noncommitted_tids_strong with (l:= seq_list t). auto.
+Qed.
+
+Lemma remove_tid_is_noncommitted tid t:
+  noncommitted tid (remove_tid tid t).
+Proof.
+  unfold noncommitted.
+  induction t.
+  simpl. omega.
+  simpl.
+  destruct a.
+  destruct (Nat.eq_dec tid n); auto.
+  simpl.
+  destruct (Nat.eq_dec tid n); try contradiction. auto.
+Qed.
+  
+Lemma remove_tid_preserve_noncommitted tid tid' t:
+  noncommitted tid t
+  -> noncommitted tid (remove_tid tid' t).
+Proof.
+  intros.
+  unfold noncommitted in *.
+  induction t.
+  simpl. omega.
+  simpl.
+  destruct a.
+  destruct (Nat.eq_dec tid' n).
+  destruct (Nat.eq_dec tid n); subst.
+  apply remove_tid_is_noncommitted.
+  simpl in H. destruct (Nat.eq_dec tid n); try contradiction. auto.
+  simpl in *.
+  destruct (Nat.eq_dec tid n); auto.
+Qed.
 
 Lemma remove_all_noncommitted_preserve_st ul:
   forall t, sto_trace t
-  -> (forall tid, In tid ul -> trace_tid_phase tid t <> 4)
+  -> (forall tid, In tid ul -> noncommitted tid t)
   -> sto_trace (remove_noncommitted t ul).
 Proof.
-  induction ul.
+  induction ul;
   intros t ST I.
   simpl; auto.
-  intros t ST I.
-  simpl.
-  apply remove_one_noncommitted_preserve_st with (tid:= a) in ST.
-  apply IHul in ST.
-  auto.
-  intros.
+  simpl. 
+  apply IHul.
+  apply remove_one_noncommitted_preserve_st with (tid:= a) in ST. auto.
   simpl in I.
-  assert (a = tid0 \/ In tid0 ul). { right. auto. }
+  assert (In a (a::ul) -> noncommitted a t). apply I.
+  simpl in H. auto.
+  intros.
+  assert (In tid0 (a :: ul)). simpl. auto.
   apply I in H0.
-  admit.
-Admitted.
-  
-Lemma trace_phase_in tid t:
-  trace_tid_phase tid t > 0 ->
-  exists a, In (tid, a) t.
-Proof.
-  induction t; intros; cbn in *.
-  omega.
-  destruct a.
-  destruct (Nat.eq_dec tid n).
-  exists a; subst; now left.
-  apply IHt in H; destruct H as [a' H]; exists a'; now right.
+  apply remove_tid_preserve_noncommitted. auto.
 Qed.
+
 
 Lemma from_sto_trace_to_cust t:
   sto_trace t
@@ -999,17 +1049,24 @@ Qed.
 
 
 Lemma phase_in_remove_noncommitted_is_4 t tid:
-  trace_tid_phase tid (remove_noncommitted t (uncommitted_tids t t)) = 4.
+  trace_tid_phase tid (remove_noncommitted t (uncommitted_tids2 t (seq_list t))) > 0 
+  -> trace_tid_phase tid (remove_noncommitted t (uncommitted_tids2 t (seq_list t))) = 4.
 Proof.
+  intros.
+  
+  induction t.
+  
+  simpl.
+  simpl.
 Admitted.
 
 (******************************************)
 Theorem remove_noncommitted_sto_trace_is_cust t :
   sto_trace t
-  -> committed_unconflicted_sto_trace (remove_noncommitted t (uncommitted_tids t t)).
+  -> committed_unconflicted_sto_trace (remove_noncommitted t (uncommitted_tids2 t (seq_list t))).
 Proof.
   intros ST.
-  apply remove_all_noncommitted_preserve_st with (ul:= (uncommitted_tids t t)) in ST.
+  apply remove_all_noncommitted_preserve_st with (ul:= (uncommitted_tids2 t (seq_list t))) in ST.
   apply from_sto_trace_to_cust. auto.
   intros.
   unfold noncommitted.
@@ -1018,7 +1075,7 @@ Proof.
   auto.
   intros.
   apply uncommitted_tid_list_is_noncommitted_tids in H.
-  unfold noncommitted in H. auto.
+  auto.
 Qed.
 (******************************************)
 

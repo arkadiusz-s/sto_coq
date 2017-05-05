@@ -549,6 +549,17 @@ Proof.
     all: now apply (IHt tid' a).
 Qed.
 
+Lemma trace_phase_nonzero tid t:
+  sto_trace t ->
+  trace_tid_phase tid t > 0 ->
+  tid > 0.
+Proof.
+  intros T; induction T; intros P; simpl in P.
+  omega.
+  all: destruct (Nat.eq_dec tid tid0); [subst; auto | now apply IHT].
+  all: try solve [apply IHT; omega].
+Qed.
+
 Lemma swap1_not_change_lock t tid tid0:
   sto_trace t -> 
   locked_by t tid = locked_by (swap1 t tid0) tid.
@@ -683,15 +694,32 @@ Proof.
   auto. auto.
 Qed.
 
-Lemma swap1_preserve_st t :
-  committed_unconflicted_sto_trace t
-  -> (forall tid, sto_trace (swap1 t tid)).
+Lemma swap1_preserve_st t tid:
+  sto_trace t
+  -> (forall t2, committed_unconflicted_sto_trace (t2 ++ t)
+  -> sto_trace (t2 ++ (swap1 t tid))).
 Proof.
-  intros ST tid.
-  induction ST as [tr ST IN].
-  clear IN.
-  functional induction (swap1 tr tid).
-  assert (sto_trace ((tid1, a1) :: (tid1, a2) :: tail')); auto.
+  intros ST.
+  functional induction (swap1 t tid).
+  intros.
+  apply sto_trace_cons in ST.
+  assert ((t2 ++ (tid1, a1) :: (tid1, a2) :: tail') 
+        = t2 ++ [(tid1, a1)] ++ (tid1, a2) :: tail'). auto.
+  rewrite H0 in H.
+  apply IHt0 with (t2:= t2 ++ [(tid1, a1)]) in ST. 
+  assert (((t2 ++ [(tid1, a1)]) ++ swap1 ((tid1, a2) :: tail') tid0) 
+       = (t2 ++ (tid1, a1) :: swap1 ((tid1, a2) :: tail') tid0)).
+  rewrite <- app_assoc. auto.
+  rewrite H1 in ST; auto. rewrite <- app_assoc; auto.
+  
+  intros t2 CUST.
+  inversion CUST.
+  assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST1. auto.
+  assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST2. auto.
+  apply sto_trace_cons in ST1. inversion ST2.
+  
+
+  
   apply sto_trace_cons in ST. apply IHt in ST.
   inversion H.
   rewrite swap1_not_change_phase with (tid0:=tid0) in H4.
@@ -758,8 +786,32 @@ Proof.
   inversion ST_tid2tail.
   assert (trace_tid_phase tid2 ((tid1, validate_read_item (trace_write_version tail')) :: tail') = 0). simpl. destruct (Nat.eq_dec tid2 tid1). apply Nat.eq_sym in e. contradiction. auto.
   auto.
+  }
   
 Admitted.
+
+
+Lemma exists_t2 t tid:
+  sto_trace t
+  -> (forall t2, committed_unconflicted_sto_trace (t2 ++ t) -> committed_unconflicted_sto_trace (t2 ++ (swap1 t tid))).
+Proof.
+  intros T; induction T; intros t2 CUST.
+  simpl; auto.
+
+Admitted.
+
+Lemma swap1_preserve_cust2 t:
+  committed_unconflicted_sto_trace t
+  -> (forall tid, committed_unconflicted_sto_trace (swap1 t tid)).
+Proof.
+  intros CUST tid.
+  functional induction (swap1 t tid).
+  assert (committed_unconflicted_sto_trace ((tid1, a1) :: (tid1, a2) :: tail')). auto.
+  inversion CUST. apply sto_trace_cons in H0.
+  apply exists_t2 with (tid0:= tid0) (t2:= [(tid1, a1)]) in H0; auto.
+Admitted.
+
+
 
 Lemma swap1_preserve_st2 t :
   committed_unconflicted_sto_trace t
@@ -960,6 +1012,24 @@ Fixpoint filter_uncommitted t good : trace :=
                       else filter_uncommitted t' good
   end.
 
+Lemma tid_nonzero_in_remove_tid t tid tid' a: 
+  sto_trace t ->
+  tid <> tid' ->
+  In (tid, a) (remove_tid tid' t) ->
+  tid > 0.
+Proof.
+  intros.
+  induction t; simpl in *. inversion H1.
+  destruct a0.
+  destruct (Nat.eq_dec tid' t0).
+  apply sto_trace_cons in H. auto.
+  simpl in H1. destruct H1.
+  inversion H1; subst.
+  assert (In (tid, a) ((tid, a)::t)). simpl; auto.
+  apply tid_nonzero in H2; auto. 
+  apply sto_trace_cons in H. auto.
+Qed.
+
 Lemma remove_tid_not_change_phase tid tid' t:
   tid <> tid'
   -> trace_tid_phase tid t = trace_tid_phase tid (remove_tid tid' t).
@@ -976,51 +1046,245 @@ Proof.
   destruct (Nat.eq_dec tid n); try contradiction. auto.
 Qed.
 
+Lemma remove_tid_not_have_lock tid t:
+  sto_trace t
+  -> locked_by t 0 = 0 \/ locked_by t 0 = tid
+  -> locked_by (remove_tid tid t) 0 = 0.
+Proof.
+  intros.
+  assert (sto_trace t); auto.
+  induction H; simpl; auto.
+  simpl in H0.
+  all: destruct (Nat.eq_dec tid tid0); auto.
+  simpl in H0.
+  assert (tid0 > 0).
+  assert (In (tid0, lock_write_item) ((tid0, lock_write_item) :: t)). simpl; auto.
+  apply tid_nonzero in H5; auto.
+  destruct H0; try omega.
+  rewrite e in *.
+  assert (locked_by t 0 = 0 \/ locked_by t 0 = tid0). auto. auto.
+  simpl in H0.
+  rewrite e in *.
+  assert (locked_by t 0 = 0 \/ locked_by t 0 = tid0). auto. auto.
+Qed.
+
+Lemma remove_tid_not_change_lock t tid':
+  sto_trace t -> 
+  locked_by t 0 <> tid'
+  -> locked_by (remove_tid tid' t) 0 = locked_by t 0.
+Proof.
+  intros.
+  induction H; simpl; auto.
+  all: destruct (Nat.eq_dec tid' tid0). 
+  all: try rewrite e in *; simpl in *; auto. 
+  contradiction.
+  apply remove_tid_not_have_lock with (tid0:= tid0) in H2; auto.
+  apply remove_tid_not_have_lock with (tid0:= tid0) in H3; auto.
+Qed.
+
+Lemma remove_tid_not_change_previous_lock tid tid' t:
+  sto_trace t
+  -> tid' <> tid
+  -> locked_by t tid = tid
+  -> locked_by (remove_tid tid' t) tid = tid.
+Proof.
+  intros.
+  induction H; simpl in *; auto.
+  all: destruct (Nat.eq_dec tid' tid0); auto.
+  rewrite e in *. contradiction.
+  rewrite e in *.
+  assert (locked_by t 0 = 0 \/ locked_by t 0 = tid0). auto.
+  apply remove_tid_not_have_lock in H4; auto.
+  { 
+    clear H H2 H1 IHsto_trace e.
+    induction H3; simpl in *; auto.
+    all: destruct (Nat.eq_dec tid0 tid1); auto.
+    apply tid_nonzero with (tid0:= tid1) in H1; auto.
+    simpl in H4. rewrite H4 in *; omega.
+  }
+  rewrite e in *.
+  assert (locked_by t 0 = 0 \/ locked_by t 0 = tid0). auto.
+  apply remove_tid_not_have_lock in H5; auto.
+  { 
+    clear H H2 H1 H3 IHsto_trace e.
+    induction H4; simpl in *; auto.
+    all: destruct (Nat.eq_dec tid0 tid1); auto.
+    apply tid_nonzero with (tid0:= tid1) in H1; auto.
+    simpl in H5. rewrite H5 in *; omega.
+  }
+Qed.
+
+Lemma remove_tid_not_change_previous_lock2 tid tid' t:
+  sto_trace t
+  -> tid <> tid'
+  -> tid > 0
+  -> locked_by t 0 <> tid
+  -> locked_by (remove_tid tid' t) 0 <> tid.
+Proof.
+  intros.
+  induction H; simpl in *; auto.
+  all: destruct (Nat.eq_dec tid' tid0); auto.
+  rewrite H4 in IHsto_trace. auto.
+  all: rewrite e in *; rewrite H3 in IHsto_trace; auto.
+Qed.
+
+Lemma remove_tid_not_change_write_version t tid':
+  sto_trace t
+  -> trace_tid_phase tid' t <> 4
+  -> trace_write_version t = trace_write_version (remove_tid tid' t).
+Proof.
+  intros.
+  induction H; simpl in *; auto.
+  all: destruct (Nat.eq_dec tid' tid0); simpl.
+  rewrite e in *. rewrite H1 in IHsto_trace. auto. auto.
+  all: try rewrite e in *; try rewrite H in IHsto_trace; auto; auto.
+  omega.
+Qed.
+  
+Lemma remove_tid_not_change_in tid action t tid':
+  tid <> tid' ->
+  In (tid, action) t -> In (tid, action) (remove_tid tid' t).
+Proof.
+  intros.
+  induction t; simpl; auto.
+  destruct a.
+  destruct (Nat.eq_dec tid' n).
+  simpl in H0. destruct H0. inversion H0. rewrite e in *. rewrite H2 in *. contradiction. auto.
+  simpl in *. destruct H0; auto.
+Qed.
+
+Lemma remove_tid_not_change_in_rev tid action t tid':
+  tid <> tid' ->
+  In (tid, action) (remove_tid tid' t) -> In (tid, action) t.
+Proof.
+  intros.
+  induction t; simpl; auto.
+  destruct a. simpl in *.
+  destruct (Nat.eq_dec tid' n); simpl in *; auto.
+  destruct H0; auto.
+Qed.
+
+
+Lemma remove_tid_not_change_last_write tid tid' t:
+  sto_trace t 
+  -> trace_tid_phase tid' t <> 4 
+  -> tid <> tid' 
+  -> trace_tid_last_write tid t = trace_tid_last_write tid (remove_tid tid' t).
+Proof.
+  intros.
+  induction H; simpl in *; auto.
+  all: destruct (Nat.eq_dec tid tid0); try contradiction.
+  all: destruct (Nat.eq_dec tid' tid0); try contradiction.
+  all: try rewrite e in *; try rewrite e0 in *; try contradiction.
+  all: simpl in *; try destruct (Nat.eq_dec tid0 tid0); try contradiction; auto.
+  all: try destruct (Nat.eq_dec tid tid0); try contradiction; auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H2; omega. auto.
+  all: assert (trace_tid_phase tid0 t <> 4); try rewrite H; try omega; auto.
+Qed.
+
 Lemma remove_one_noncommitted_preserve_st tid t:
   sto_trace t
   -> noncommitted tid t
   -> sto_trace (remove_tid tid t).
 Proof.  
-  intros.
-  induction H; simpl; auto.
+  intros. assert (sto_trace t) as COPY; auto.
+  induction H; simpl; auto; 
+  apply sto_trace_cons in COPY.
   all: destruct (Nat.eq_dec tid tid0); subst.
   all: unfold noncommitted in *; auto.
   assert (trace_tid_phase tid0 t <> 4). rewrite H1. omega. auto.
   simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
   apply IHsto_trace in H0.
-  rewrite remove_tid_not_change_phase with (tid' := tid) in H1; auto.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H1; auto. auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  apply remove_tid_not_have_lock with (tid0:= tid) in H2; auto.
+  rewrite remove_tid_not_change_write_version with (tid' := tid); auto. auto.
   assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
   simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
   apply IHsto_trace in H0.
   rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
-
-
-Lemma remove_tid_not_change_lock t tid tid':
-  sto_trace t -> noncommitted tid' t -> tid <> tid' -> 
-  locked_by t 0 = locked_by (remove_tid tid' t) 0.
-Proof.
+  auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  apply remove_tid_not_have_lock with (tid0:= tid) in H3; auto.
+  apply remove_tid_not_change_in with (tid':= tid) in H1; auto.
+  apply lock_write_item_step with (tid0:= tid0) (v:= v) in H0; auto. auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  assert (forall v : value,
+     In (tid0, write_item v) (remove_tid tid t) -> In (tid0, lock_write_item) (remove_tid tid t)).
   intros.
-  induction H; simpl; auto.
-Admitted.
-
-Lemma remove_tid_not_change_write_version t tid tid':
-  sto_trace t -> tid <> tid' ->
-  trace_write_version t = trace_write_version (remove_tid tid' t).
-Admitted.
-
-Lemma remove_tid_not_change_in tid action t tid':
-  tid <> tid' ->
-  In (tid, action) t -> In (tid, action) (remove_tid tid' t).
-Admitted.
-
-Lemma remove_tid_not_change_last_write tid tid' t:
-  sto_trace t -> tid <> tid' ->
-  trace_tid_last_write tid t = trace_tid_last_write tid (remove_tid tid' t).
-Admitted.
-
-  unfold noncommitted in H0; simpl in H0; try destruct (Nat.eq_dec tid0 tid0); try contradiction; try omega.
-
-Admitted.
+  apply remove_tid_not_change_in_rev in H4; auto. apply H1 in H4.
+  apply remove_tid_not_change_in with (tid' := tid) in H4; auto.
+  apply seq_point_step with (tid:= tid0) in H0; auto. auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  apply remove_tid_not_change_previous_lock with (tid':= tid) in H1; auto.
+  rewrite remove_tid_not_change_write_version with (tid':= tid); auto. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H1; auto.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto. auto.
+  remember (locked_by t 0) as tid0.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  remember (locked_by t 0) as tid0.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid':= tid) in H; auto.
+  apply Nat.eq_sym in Heqtid0.
+  assert (locked_by t 0 = tid0). auto.
+  rewrite <- remove_tid_not_change_lock with (tid' := tid) in Heqtid0; auto. rewrite H3. auto. auto.
+  assert (trace_tid_phase tid0 t <> 4). rewrite H. omega. auto.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  assert (forall vers : version,
+     In (tid0, read_item vers) (remove_tid tid t) -> In (tid0, validate_read_item vers) (remove_tid tid t)).
+  intros. apply remove_tid_not_change_in_rev in H4; auto. apply H1 in H4.
+  apply remove_tid_not_change_in with (tid' := tid) in H4; auto.
+  apply commit_txn_step with (tid:= tid0) in H0; auto. auto.
+  remember (locked_by t 0) as tid0. 
+  simpl in H0. destruct (Nat.eq_dec tid0 tid0); try contradiction.
+  remember (locked_by t 0) as tid0. 
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  rewrite remove_tid_not_change_write_version with (tid':= tid); auto.
+  rewrite remove_tid_not_change_last_write with (tid':= tid) in H2; auto.
+  apply Nat.eq_sym in Heqtid0.
+  assert (locked_by t 0 = tid0). auto.
+  rewrite <- remove_tid_not_change_lock with (tid' := tid) in Heqtid0; auto.
+  apply complete_write_item_step with (tid0:= tid0) (val:= val) in H0; auto.
+  rewrite H4. auto. auto.
+  simpl in H0. destruct (Nat.eq_dec tid0 tid0); try contradiction.
+  simpl in H0. destruct (Nat.eq_dec tid tid0); try contradiction.
+  assert (trace_tid_phase tid t <> 4). auto.
+  apply IHsto_trace in H0.
+  assert (tid0 > 0). apply trace_phase_nonzero with (tid:= tid0) in H2; auto. rewrite H. omega.
+  rewrite remove_tid_not_change_phase with (tid' := tid) in H; auto.
+  apply remove_tid_not_change_previous_lock2 with (tid':= tid) in H1; auto. auto.
+Qed.
 
 Lemma uncommitted_tid_list_is_noncommitted_tids_strong tid t l:
   In tid (uncommitted_tids2 t l)

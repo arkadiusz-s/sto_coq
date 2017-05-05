@@ -1434,14 +1434,15 @@ Qed.
 (******************************************)
 Theorem remove_noncommitted_does_not_reorder t tid:
   sto_trace t
-  -> ~ In tid  (uncommitted_tids2 t (tid_list t))
+  -> ~ In tid 
   -> filter (fun pr => fst pr =? tid) t = filter (fun pr => fst pr =? tid) (remove_noncommitted t (uncommitted_tids2 t (tid_list t))).
 Proof.
   intros.
-  apply remove_noncommitted_does_not_reorder_strong with (tid' := tid) (l := (uncommitted_tids2 t (tid_list t))) in H; auto.
+  apply remove_noncommitted_does_not_reorder_strong with (tid' := tid0) (l := (uncommitted_tids2 t (tid_list t))) in H; auto.
   intros.
   apply uncommitted_tid_list_is_noncommitted_tids. auto.
-Qed.
+
+Admitted.
 (******************************************)
 
 

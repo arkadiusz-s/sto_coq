@@ -865,58 +865,258 @@ Proof.
   apply commit_txn_step with (tid:= tid2) in H7; auto.
   apply sto_trace_swap_app in H; subst; auto.
 
+  admit.
+
   simpl in H5. simpl in H6. apply sto_trace_cons in H7.
   apply validate_read_item_step with (tid0:= tid1) (vers:= vers) in H7; auto.
   assert (trace_tid_phase tid2 ((tid1, validate_read_item vers) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
-  assert (locked_by ((tid1, validate_read_item vers) :: tail') 0 = tid2); simpl; auto. 
-  assert (trace_write_version tail' = trace_write_version ((tid1, validate_read_item vers) :: tail')); simpl; auto. rewrite H18.
-  apply complete_write_item_step with (tid0:= tid2) (val:= val) in H7; auto.
+  assert (locked_by ((tid1, validate_read_item vers) :: tail') 0 <> tid2); simpl; auto. 
+  apply commit_done_step with (tid0:= tid2) in H7; auto.
   apply sto_trace_swap_app in H; subst; auto.
 
+  simpl in H4. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  assert (forall vers : version,
+     In (tid1, read_item vers) tail' ->
+     In (tid1, validate_read_item vers) tail').
+  intros. simpl in H5.
+  assert ((tid2, a2) = (tid1, read_item vers) \/ In (tid1, read_item vers) tail'). auto. apply H5 in H8.
+  destruct H8. inversion H8. rewrite H10 in *. contradiction. auto.
+  apply sto_trace_cons in H6.
+  apply commit_txn_step with (tid:= tid1) in H6; auto.
 
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 2). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
-  assert (locked_by ((tid1, start_txn) :: tail') 0 = 0). simpl; auto.
-  assert (In (tid2, write_item v) ((tid1, start_txn) :: tail')); simpl; auto.
-  apply lock_write_item_step with (tid0:= tid2) (v:= v) in H7; auto.
+  inversion ST1; rewrite <- H9 in *; simpl in NE62; try omega.
+  
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 0); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply start_txn_step with (tid:= tid2) in H6; auto.
   apply sto_trace_swap_app in H; subst; auto.
 
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 2). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_txn) :: tail') 0 = 0); simpl; auto. 
+  assert (trace_write_version tail' = trace_write_version ((tid1, commit_txn) :: tail')); simpl; auto. rewrite H16.
+  apply read_item_step with (tid0:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply write_item_step with (tid:= tid2) (val:= val) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply try_commit_txn_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 2); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (In (tid2, write_item v) ((tid1, commit_txn) :: tail')); simpl; auto.
+  assert (locked_by ((tid1, commit_txn) :: tail') 0 = 0); simpl; auto.
+  apply lock_write_item_step with (tid0:= tid2) (v:= v) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 2); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
   assert (forall v : value,
-      In (tid2, write_item v) ((tid1, start_txn) :: tail') -> In (tid2, lock_write_item) ((tid1, start_txn) :: tail')). 
-  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
-  apply H11 in H14. simpl. auto.
+      In (tid2, write_item v) ((tid1, commit_txn) :: tail') -> In (tid2, lock_write_item) ((tid1, commit_txn) :: tail')). 
+  intros. simpl in H15. destruct H15. inversion H15; try contradiction.
+  apply H12 in H15. simpl. auto.
+  apply seq_point_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 3); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_txn) :: tail') tid2 = tid2); simpl; auto. 
+  apply validate_read_item_step with (tid0:= tid2) (vers:= vers) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 3); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (forall vers0 : version,
+      In (tid2, read_item vers0) ((tid1, commit_txn) :: tail') -> In (tid2, validate_read_item vers0) ((tid1, commit_txn) :: tail')). 
+  intros. simpl in H15. destruct H15. inversion H15; try contradiction.
+  apply H12 in H15. simpl. auto.
+  apply commit_txn_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_txn) :: tail') 0 = tid2); simpl; auto.
+  assert (trace_tid_last_write tid2 ((tid1, commit_txn) :: tail') = Some val); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (trace_write_version tail' = trace_write_version ((tid1, commit_txn) :: tail')); simpl; auto. rewrite H18.
+  apply complete_write_item_step with (tid0:= tid2) (val:= val) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, commit_txn) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_txn) :: tail') 0 <> tid2); simpl; auto. 
+  apply commit_done_step with (tid0:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  
+  simpl in H4. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+
+  inversion ST1; rewrite <- H9 in *; simpl in NE62; try omega.
+  
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 0); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply start_txn_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. rewrite H5 in H12.
+  assert (In (tid1, complete_write_item (S (trace_write_version t))) ((tid1, complete_write_item (S (trace_write_version t))) :: (tid2, read_item (trace_write_version t0)) :: tail')); simpl; auto.
+  apply tid_nonzero in H14; auto. rewrite H12 in H14. omega.
+
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply write_item_step with (tid:= tid2) (val:= val0) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply try_commit_txn_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  
+  simpl in H5. rewrite H5 in _x. contradiction.
+
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 2); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (forall v : value,
+      In (tid2, write_item v) ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') -> In (tid2, lock_write_item) ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail')). 
+  intros. simpl in H15. destruct H15. inversion H15; try contradiction.
+  apply H12 in H15. simpl. auto.
   apply seq_point_step with (tid:= tid2) in H7; auto.
   apply sto_trace_swap_app in H; subst; auto.
 
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 3). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
-  assert (locked_by ((tid1, start_txn) :: tail') tid2 = tid2). simpl; auto.
-  assert (trace_write_version ((tid1, start_txn) :: tail') = vers); simpl; auto.
-  apply validate_read_item_step with (tid0:= tid2) (vers:= vers) in H7; auto.
-  apply sto_trace_swap_app in H; subst; auto.
-  
-  rewrite <- H8 in NE62. simpl in NE62. omega.
-  rewrite <- H8 in NE62. simpl in NE62. omega.
-  
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 3). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
-  assert (forall vers : version,
-      In (tid2, read_item vers) ((tid1, start_txn) :: tail') -> In (tid2, validate_read_item vers) ((tid1, start_txn) :: tail')). 
-  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
-  apply H11 in H14. simpl. auto.
+  admit.
+
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 3); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (forall vers0 : version,
+      In (tid2, read_item vers0) ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') -> In (tid2, validate_read_item vers0) ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail')). 
+  intros. simpl in H15. destruct H15. inversion H15; try contradiction.
+  apply H12 in H15. simpl. auto.
   apply commit_txn_step with (tid:= tid2) in H7; auto.
   apply sto_trace_swap_app in H; subst; auto.
 
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 4). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
-  assert (locked_by ((tid1, start_txn) :: tail') 0 = tid2). simpl; auto.
-  assert (trace_tid_last_write tid2 ((tid1, start_txn) :: tail') = Some val). simpl. destruct (Nat.eq_dec tid2 tid1); auto.
-  assert (trace_write_version ((tid1, start_txn) :: tail') = (trace_write_version tail')); simpl; auto.
-  apply complete_write_item_step with (tid0:= tid2) (val:= val) in H7; auto.
-  apply sto_trace_swap_app in H; subst; auto.
+  simpl in H5. 
+  assert (In (tid1, complete_write_item (S (trace_write_version t))) ((tid1, complete_write_item (S (trace_write_version t))):: (tid2, complete_write_item (S (trace_write_version t0))) :: tail')); simpl; auto.
+  apply tid_nonzero in H15; auto. rewrite H5 in H15. omega.
 
-  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 4). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
-  assert (locked_by ((tid1, start_txn) :: tail') 0 <> tid2). simpl; auto.
+  simpl in H5. simpl in H6. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+  apply sto_trace_cons in H7. simpl.
+  apply complete_write_item_step with (tid0:= tid1) (val:= val) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, complete_write_item (S (trace_write_version tail'))) :: tail') 0 <> tid2); simpl. 
+  assert (In (tid2, commit_done_txn) ((tid1, complete_write_item (S (trace_write_version t))) :: (tid2, commit_done_txn) :: tail')); simpl; auto.
+  apply tid_nonzero in H15; auto.
   apply commit_done_step with (tid0:= tid2) in H7; auto.
   apply sto_trace_swap_app in H; subst; auto.
   
+  
+  simpl in H4. destruct (Nat.eq_dec tid1 tid2); try contradiction.
+
+  inversion ST1; rewrite <- H8 in *; simpl in NE62; try omega.
+  
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 0); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply start_txn_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_done_txn) :: tail') 0 = 0); simpl; auto. 
+  assert (trace_write_version tail' = trace_write_version ((tid1, commit_done_txn) :: tail')); simpl; auto. rewrite H15.
+  apply read_item_step with (tid0:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply write_item_step with (tid:= tid2) (val:= val) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 1); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply try_commit_txn_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 2); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (In (tid2, write_item v) ((tid1, commit_done_txn) :: tail')); simpl; auto.
+  assert (locked_by ((tid1, commit_done_txn) :: tail') 0 = 0); simpl; auto.
+  apply lock_write_item_step with (tid0:= tid2) (v:= v) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  rewrite H12.
+  assert (In (tid1, commit_done_txn) ((tid1, commit_done_txn) :: (tid2, lock_write_item) :: tail')); simpl. auto.
+  apply tid_nonzero in H14; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 2); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (forall v : value,
+      In (tid2, write_item v) ((tid1, commit_done_txn) :: tail') -> In (tid2, lock_write_item) ((tid1, commit_done_txn) :: tail')). 
+  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
+  apply H11 in H14. simpl. auto.
+  apply seq_point_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 3); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_done_txn) :: tail') tid2 = tid2); simpl; auto. 
+  apply validate_read_item_step with (tid0:= tid2) (vers:= vers) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 3); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (forall vers0 : version,
+      In (tid2, read_item vers0) ((tid1, commit_done_txn) :: tail') -> In (tid2, validate_read_item vers0) ((tid1, commit_done_txn) :: tail')). 
+  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
+  apply H11 in H14. simpl. auto.
+  apply commit_txn_step with (tid:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_done_txn) :: tail') 0 = tid2); simpl; auto.
+  assert (trace_tid_last_write tid2 ((tid1, commit_done_txn) :: tail') = Some val); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (trace_write_version tail' = trace_write_version ((tid1, commit_done_txn) :: tail')); simpl; auto. rewrite H17.
+  apply complete_write_item_step with (tid0:= tid2) (val:= val) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  rewrite H11. auto.
+
+  simpl in H5. apply sto_trace_cons in H6. apply commit_done_step with (tid0:= tid1) in H6; auto.
+  assert (trace_tid_phase tid2 ((tid1, commit_done_txn) :: tail') = 4); simpl; destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  assert (locked_by ((tid1, commit_done_txn) :: tail') 0 <> tid2); simpl; auto. 
+  apply commit_done_step with (tid0:= tid2) in H6; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  intros t2 CUST. clear e1 e2.
+  apply andb_true_iff in e3; destruct e3 as [e3 LT3].
+  apply Nat.ltb_lt in LT3.
+
+  assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST1. auto.
+  assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST2. auto.
+  apply sto_trace_cons in ST1. 
+  inversion CUST.
+  apply not_equal_phase6 in H0; auto. destruct H0 as [NE61 NE62].
+  
+  inversion ST1; rewrite <- H2 in *; simpl in LT3; try omega; try contradiction.
+  
+  
+
+  intros.
+  apply sto_trace_cons in ST.
+  assert ((t2 ++ (tid1, a1) :: (tid2, a2) :: tail') 
+        = t2 ++ [(tid1, a1)] ++ (tid2, a2) :: tail'). auto.
+  rewrite H0 in H.
+  apply IHt0 with (t2:= t2 ++ [(tid1, a1)]) in ST. 
+  assert (((t2 ++ [(tid1, a1)]) ++ swap1 ((tid2, a2) :: tail') tid0) 
+       = (t2 ++ (tid1, a1) :: swap1 ((tid2, a2) :: tail') tid0)).
+  rewrite <- app_assoc. auto.
+  rewrite H1 in ST; auto. rewrite <- app_assoc; auto.
+  
+  all: intros; inversion H; auto.
+
 Admitted.
 
 

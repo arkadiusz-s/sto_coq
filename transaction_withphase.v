@@ -694,7 +694,89 @@ Proof.
   auto. auto.
 Qed.
 
-Lemma swap1_preserve_st t tid:
+Lemma sto_trace_swap_app tid1 tid2 a1 a2 t t':
+  sto_trace ((tid2, a2) :: (tid1, a1) :: t)
+  -> sto_trace (t' ++ (tid1, a1) :: (tid2, a2) :: t)
+  -> action_phase a1 <> 6
+  -> action_phase a2 <> 6
+  -> 3 <= action_phase a1
+  -> a1 <> seq_point
+  -> sto_trace (t' ++ (tid2, a2) :: (tid1, a1) :: t).
+Admitted.
+
+Lemma tid_phase_gt0 tid a t:
+  sto_trace t
+  -> In (tid, a) t
+  -> trace_tid_phase tid t > 0.
+Proof.
+  intros.
+  apply in_split in H0.
+  destruct H0. destruct H0.
+  rewrite H0 in *. clear H0.
+  induction x.
+  simpl in *. destruct (Nat.eq_dec tid tid); try contradiction.
+  destruct a; simpl; auto; try omega.
+  destruct a0. simpl.
+  destruct (Nat.eq_dec tid t0). destruct a0; simpl; auto; try omega.
+  simpl in H.
+  apply sto_trace_cons in H. auto.
+Qed.
+
+Lemma phase_increase_head tid a t:
+  sto_trace ((tid, a) :: t) ->
+  action_phase a >= trace_tid_phase tid t.
+Proof.
+  intros; inversion H; cbn; omega.
+Qed.
+
+Lemma phase_increase_app tid t1 t2:
+  sto_trace (t1 ++ t2) ->
+  trace_tid_phase tid (t1 ++ t2) >= trace_tid_phase tid t2.
+Proof.
+  induction t1; intros.
+  - simpl; omega.
+  - rewrite <- app_comm_cons in H; destruct a.
+    assert (sto_trace (t1 ++ t2)) by (now apply sto_trace_cons in H).
+    apply IHt1 in H0.
+    simpl; destruct (Nat.eq_dec tid t).
+    + subst; apply phase_increase_head in H; omega.
+    + auto.
+Qed.
+
+Lemma not_equal_phase6 t2 tid1 a1 tid2 a2 t:
+  sto_trace (t2 ++ (tid1, a1) :: (tid2, a2) :: t)
+  -> tid1 <> tid2
+  -> (forall tid0,
+     trace_tid_phase tid0 (t2 ++ (tid1, a1) :: (tid2, a2) :: t) > 0 ->
+     trace_tid_phase tid0 (t2 ++ (tid1, a1) :: (tid2, a2) :: t) = 4)
+  -> action_phase a1 <> 6 /\ action_phase a2 <> 6.
+Proof.
+  intros.
+  assert (In (tid1, a1) (t2 ++ (tid1, a1) :: (tid2, a2) :: t)). apply in_or_app. simpl. auto.
+  assert (In (tid2, a2) (t2 ++ (tid1, a1) :: (tid2, a2) :: t)). apply in_or_app. simpl. auto.
+  apply tid_phase_gt0 in H2; auto.
+  apply tid_phase_gt0 in H3; auto.
+  apply H1 in H2. apply H1 in H3. clear H1.
+  assert (sto_trace (t2 ++ (tid1, a1) :: (tid2, a2) :: t)). auto.
+  apply phase_increase_app with (tid0:= tid1) in H.
+  apply phase_increase_app with (tid0:= tid2) in H1.
+  rewrite H2 in *. rewrite H3 in *.
+  simpl in *.
+  destruct (Nat.eq_dec tid1 tid1); try contradiction.
+  destruct (Nat.eq_dec tid2 tid1). rewrite e0 in *. try contradiction.
+  destruct (Nat.eq_dec tid2 tid2); try contradiction.
+  split; intuition.
+Qed.
+  
+Lemma is_not_seq_point_lemma a:
+  is_not_seq_point a = true
+  -> a <> seq_point.
+Proof.
+  intros.
+  destruct a; intuition; inversion H0.
+Qed.
+
+Lemma swap1_preserve_st_strong t tid:
   sto_trace t
   -> (forall t2, committed_unconflicted_sto_trace (t2 ++ t)
   -> sto_trace (t2 ++ (swap1 t tid))).
@@ -712,114 +794,100 @@ Proof.
   rewrite <- app_assoc. auto.
   rewrite H1 in ST; auto. rewrite <- app_assoc; auto.
   
-  intros t2 CUST.
-  inversion CUST.
+  intros t2 CUST. clear e1.
+  apply andb_true_iff in e2; destruct e2 as [e2 SP].
+  apply andb_true_iff in e2; destruct e2 as [tid01 GT3].
+  apply leb_complete in GT3. apply is_not_seq_point_lemma in SP. 
+
   assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST1. auto.
   assert (sto_trace ((tid1, a1) :: (tid2, a2) :: tail')) as ST2. auto.
-  apply sto_trace_cons in ST1. inversion ST2.
-  
+  apply sto_trace_cons in ST1. 
+  inversion CUST.
+  apply not_equal_phase6 in H0; auto. destruct H0 as [NE61 NE62].
+  inversion ST2; rewrite <- H2 in *; simpl in GT3; try omega; try contradiction.
 
+  assert (trace_tid_phase tid1 tail' = 3). simpl in H4; destruct (Nat.eq_dec tid1 tid2); try contradiction; auto.
+  inversion ST1; rewrite <- H10 in *; simpl in NE62; try omega.
+
+  simpl in H5. simpl in H6. apply sto_trace_cons in H7.
+  apply validate_read_item_step with (tid0:= tid1) (vers:= vers) in H7; auto.
+  assert (trace_tid_phase tid2 ((tid1, validate_read_item vers) :: tail') = 0). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in _x; try contradiction; auto.
+  apply start_txn_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  simpl in H5. simpl in H6. apply sto_trace_cons in H7.
+  apply validate_read_item_step with (tid0:= tid1) (vers:= vers) in H7; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 1). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (locked_by ((tid1, start_txn) :: tail') 0 = 0). simpl; auto.
+  assert (trace_write_version tail' = trace_write_version ((tid1, start_txn) :: tail')). simpl; auto. rewrite H15.
+  apply read_item_step with (tid0:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 1). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  apply write_item_step with (tid:= tid2) (val:= val) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
   
-  apply sto_trace_cons in ST. apply IHt in ST.
-  inversion H.
-  rewrite swap1_not_change_phase with (tid0:=tid0) in H4.
-  auto.
-  rewrite swap1_not_change_phase with (tid0 := tid0) in H3.
-  rewrite swap1_not_change_write_version with (tid:= tid0); auto.
-  rewrite swap1_not_change_lock with (tid0:= 0) (tid1:= tid0) in H4.
-  auto. auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H2.
-  auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H2.
-  auto.
-  rewrite swap1_not_change_phase with (tid0 := tid0) in H3.
-  rewrite swap1_not_change_lock with (tid0:= 0) (tid1:= tid0) in H5; auto.
-  assert (In (tid1, write_item v) (swap1 ((tid1, a2) :: tail') tid0)).
-  apply swap1_not_change_in. auto.
-  apply lock_write_item_step with (tid0:= tid1) (v:= v) in ST; auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 1). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  apply try_commit_txn_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 2). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (locked_by ((tid1, start_txn) :: tail') 0 = 0). simpl; auto.
+  assert (In (tid2, write_item v) ((tid1, start_txn) :: tail')); simpl; auto.
+  apply lock_write_item_step with (tid0:= tid2) (v:= v) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 2). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
   assert (forall v : value,
-     In (tid1, write_item v) (swap1 ((tid1, a2) :: tail') tid0)->
-     In (tid1, lock_write_item) (swap1 ((tid1, a2) :: tail') tid0)).
-  intros. apply swap1_not_change_in_rev in H6. apply H4 in H6. apply swap1_not_change_in. auto. 
-  auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
-  rewrite swap1_not_change_lock with (tid0:= tid1) (tid1:= tid0) in H4.
-  rewrite swap1_not_change_write_version with (tid:= tid0) in H5; auto. auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H4.
-  auto.
-  rewrite swap1_not_change_phase with (tid0 := tid0) in H3.
-  rewrite swap1_not_change_lock with (tid0:= 0) (tid1:= tid0) in H4.
-  auto. auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
+      In (tid2, write_item v) ((tid1, start_txn) :: tail') -> In (tid2, lock_write_item) ((tid1, start_txn) :: tail')). 
+  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
+  apply H11 in H14. simpl. auto.
+  apply seq_point_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 3). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (locked_by ((tid1, start_txn) :: tail') tid2 = tid2). simpl; auto.
+  assert (trace_write_version ((tid1, start_txn) :: tail') = vers); simpl; auto.
+  apply validate_read_item_step with (tid0:= tid2) (vers:= vers) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+  
+  rewrite <- H8 in NE62. simpl in NE62. omega.
+  rewrite <- H8 in NE62. simpl in NE62. omega.
+  
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 3). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
   assert (forall vers : version,
-     In (tid1, read_item vers) (swap1 ((tid1, a2) :: tail') tid0) ->
-     In (tid1, validate_read_item vers) (swap1 ((tid1, a2) :: tail') tid0)).
-  intros. apply swap1_not_change_in_rev in H6. apply H4 in H6. apply swap1_not_change_in. auto.
-  auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
-  rewrite swap1_not_change_lock with (tid0:= 0) (tid1:= tid0) in H4.
-  auto.
-  rewrite swap1_not_change_last_write with (tid0:= tid0) in H5.
-  rewrite swap1_not_change_write_version with (tid:= tid0).
-  apply complete_write_item_step with (tid0:= tid1) (val:= val) in ST; auto.
-  auto. auto. auto.
-  rewrite swap1_not_change_phase with (tid0:= tid0) in H3.
-  rewrite swap1_not_change_lock with (tid0:= 0) (tid1:= tid0) in H4.
-  auto. auto.
-  
-  apply andb_true_iff in e2. destruct e2.
-  apply andb_true_iff in H. destruct H.
-  apply leb_complete in H1.
-  
-  assert (sto_trace tail') as ST_tail.
-  apply sto_trace_cons in ST. apply sto_trace_cons in ST. auto.
-  assert (sto_trace ((tid2, a2) :: tail')) as ST_tid2tail. 
-  apply sto_trace_cons in ST. auto.
-  inversion ST; subst; simpl in H1; try omega.
-  simpl in H0. inversion H0.
-  simpl in H5.
-  destruct (Nat.eq_dec tid1 tid2); try contradiction.
-  simpl in H6. destruct a2.
-  simpl. apply validate_read_item_step with (tid0:= tid1) (vers:= (trace_write_version tail'))in ST_tail; auto.
-  inversion ST_tid2tail.
-  assert (trace_tid_phase tid2 ((tid1, validate_read_item (trace_write_version tail')) :: tail') = 0). simpl. destruct (Nat.eq_dec tid2 tid1). apply Nat.eq_sym in e. contradiction. auto.
-  auto.
-  }
+      In (tid2, read_item vers) ((tid1, start_txn) :: tail') -> In (tid2, validate_read_item vers) ((tid1, start_txn) :: tail')). 
+  intros. simpl in H14. destruct H14. inversion H14; try contradiction.
+  apply H11 in H14. simpl. auto.
+  apply commit_txn_step with (tid:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 4). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (locked_by ((tid1, start_txn) :: tail') 0 = tid2). simpl; auto.
+  assert (trace_tid_last_write tid2 ((tid1, start_txn) :: tail') = Some val). simpl. destruct (Nat.eq_dec tid2 tid1); auto.
+  assert (trace_write_version ((tid1, start_txn) :: tail') = (trace_write_version tail')); simpl; auto.
+  apply complete_write_item_step with (tid0:= tid2) (val:= val) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
+
+  assert (trace_tid_phase tid2 ((tid1, start_txn) :: tail') = 4). simpl. destruct (Nat.eq_dec tid2 tid1); try rewrite e in n; try contradiction; auto.
+  assert (locked_by ((tid1, start_txn) :: tail') 0 <> tid2). simpl; auto.
+  apply commit_done_step with (tid0:= tid2) in H7; auto.
+  apply sto_trace_swap_app in H; subst; auto.
   
 Admitted.
 
 
-Lemma exists_t2 t tid:
-  sto_trace t
-  -> (forall t2, committed_unconflicted_sto_trace (t2 ++ t) -> committed_unconflicted_sto_trace (t2 ++ (swap1 t tid))).
-Proof.
-  intros T; induction T; intros t2 CUST.
-  simpl; auto.
-
-Admitted.
-
-Lemma swap1_preserve_cust2 t:
+Lemma swap1_preserve_st t tid:
   committed_unconflicted_sto_trace t
-  -> (forall tid, committed_unconflicted_sto_trace (swap1 t tid)).
+  -> sto_trace (swap1 t tid).
 Proof.
-  intros CUST tid.
-  functional induction (swap1 t tid).
-  assert (committed_unconflicted_sto_trace ((tid1, a1) :: (tid1, a2) :: tail')). auto.
-  inversion CUST. apply sto_trace_cons in H0.
-  apply exists_t2 with (tid0:= tid0) (t2:= [(tid1, a1)]) in H0; auto.
-Admitted.
+  intros.
+  inversion H.
+  apply swap1_preserve_st_strong with (t2 := []).
+  auto. simpl. auto.
+Qed.
 
-
-
-Lemma swap1_preserve_st2 t :
-  committed_unconflicted_sto_trace t
-  -> (forall tid, sto_trace (swap1 t tid)).
-Proof.
-  intros CUST.
-  induction CUST.
-Admitted.
 
 Lemma swap1_preserve_phase4 t:
   committed_unconflicted_sto_trace t

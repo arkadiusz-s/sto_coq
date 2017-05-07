@@ -2175,6 +2175,15 @@ Proof.
   auto.
 Qed.
 
+(*
+Lemma swaps_no_swap sl:
+  forall t tid, committed_unconflicted_sto_trace t
+  -> swap1 (swaps t tid (length t * length t)) tid = swaps t tid (length t * length t)
+  -> swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.
+Proof.
+Admitted.
+*)
+
 Lemma create_with_swaps_tid_no_swap tid t sl:
   committed_unconflicted_sto_trace t -> 
   swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.

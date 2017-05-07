@@ -2174,7 +2174,14 @@ Proof.
   intros.
   auto.
 Qed.
-
+(*
+Lemma swaps_no_swap sl:
+  forall t tid, committed_unconflicted_sto_trace t
+  -> swap1 (swaps t tid (length t * length t)) tid = swaps t tid (length t * length t)
+  -> swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.
+Proof.
+Admitted.
+*)
 Lemma create_with_swaps_tid_no_swap tid t sl:
   committed_unconflicted_sto_trace t -> 
   swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.
@@ -2196,6 +2203,7 @@ Proof.
   apply swaps_preserve_cust with (num:= (length t * length t)) (tid:= a) in CUST.
   apply IHsl in CUST; auto.
 Qed.
+
 
 Lemma create_serial_trace_no_swap tid:
   forall t, committed_unconflicted_sto_trace t

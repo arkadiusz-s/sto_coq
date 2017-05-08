@@ -2175,20 +2175,39 @@ Proof.
   auto.
 Qed.
 
-(*
-Lemma swaps_no_swap sl:
+Lemma swap1_not_change_length tid:
+  forall t, length (swap1 t tid) = length t.
+Proof.
+  intros.
+  functional induction (swap1 t tid); simpl; auto.
+Qed.
+
+Lemma swaps_not_change_length tid l:
+  forall t, length (swaps t tid l) = length t.
+Proof. 
+  induction l; intros t.
+  simpl. auto.
+  simpl. 
+  assert (length (swaps (swap1 t tid) tid l) = length (swap1 t tid)).
+  apply IHl with (t := (swap1 t tid)).
+  rewrite swap1_not_change_length in H; auto.
+Qed.
+
+Lemma create_with_swaps_tid_no_swap sl:
   forall t tid, committed_unconflicted_sto_trace t
-  -> swap1 (swaps t tid (length t * length t)) tid = swaps t tid (length t * length t)
   -> swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.
 Proof.
-Admitted.
-*)
-
-Lemma create_with_swaps_tid_no_swap tid t sl:
-  committed_unconflicted_sto_trace t -> 
-  swap1 (create_serialized_trace (swaps t tid (length t * length t)) sl) tid = create_serialized_trace (swaps t tid (length t * length t)) sl.
-Proof.
-  intros CUST.
+  induction sl; intros t tid CUST.
+  simpl.
+  assert (swap1 (swaps t tid (length t * length t)) tid = swaps t tid (length t * length t)). admit. auto.
+  simpl.
+  assert (length (swaps t tid (length t * length t)) = length t).
+  apply swaps_not_change_length with (l:= (length t * length t)).
+  rewrite H.
+  apply swaps_preserve_cust with (num:= (length t * length t)) (tid:= tid) in CUST; auto.
+  apply IHsl with (tid0:= tid) in CUST; auto. 
+  rewrite H in CUST.
+  destruct (Nat.eq_dec tid a); subst; auto.
 Admitted.
 
 Lemma create_serial_trace_no_swap_strong tid sl:
